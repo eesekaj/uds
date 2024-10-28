@@ -29,9 +29,9 @@ macro_rules! impl_rawfd_traits {($type:tt) => {
     }
     impl IntoRawFd for $type {
         fn into_raw_fd(self) -> RawFd {
-            let fd = self.fd.into_raw_fd();
+            self.fd.into_raw_fd()
             //mem::forget(self);
-            fd
+            //fd
         }
     }
     /* OwnedFd closes the file descriptor on drop. It is guaranteed that nobody else will close the file descriptor.
@@ -850,7 +850,6 @@ impl NonblockingUnixSeqpacketConn {
     }
     pub fn send_flags(&self,  packet: &[u8], flags: i32) -> Result<usize, io::Error> {
         let ptr = packet.as_ptr() as *const c_void;
-        let flags = flags;
         let sent = cvt_r!(unsafe { send(self.fd.as_raw_fd(), ptr, packet.len(), flags) })?;
         Ok(sent as usize)
     }
