@@ -4,6 +4,7 @@
 /// Several adapted from std.
 
 use std::convert::TryInto;
+use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::io::{RawFd, AsRawFd, IntoRawFd};
 use std::io::{self, ErrorKind};
 use std::mem;
@@ -11,7 +12,7 @@ use std::time::Duration;
 
 use libc::{c_int, sockaddr, socklen_t, AF_UNIX};
 use libc::{bind, connect, getsockname, getpeername};
-use libc::{socket, accept, close, listen, socketpair};
+use libc::{socket, accept, listen, socketpair};
 use libc::{ioctl, FIONBIO};
 #[cfg(not(target_os = "haiku"))]
 use libc::{FIOCLEX,FIONCLEX};
@@ -211,29 +212,46 @@ pub fn get_timeout(socket: RawFd,  direction: TimeoutDirection)
 
 /// Used in setup of sockets to ensure the file descriptor is always closed
 /// if later parts of the setup fails.
-pub struct Socket(RawFd);
+pub struct Socket(OwnedFd);
 
+//OwnedFd closes the file descriptor on drop. It is guaranteed that nobody else will close the file descriptor.
+/*
 impl Drop for Socket {
     fn drop(&mut self) {
         // ignore errors - unlikely and there is nowhere to return them
         unsafe { close(self.0) };
     }
 }
+*/
 
 impl IntoRawFd for Socket {
     fn into_raw_fd(self) -> RawFd {
-        let fd = self.0;
-        mem::forget(self);
-        fd
+        self.0.into_raw_fd()
+        //let fd = self.0;
+        //mem::forget(self);
+        //fd
     }
 }
 
 impl AsRawFd for Socket {
     fn as_raw_fd(&self) -> RawFd {
-        self.0
+        self.0.as_raw_fd()
     }
 }
 
+impl AsFd for Socket {
+    fn as_fd(&self) -> BorrowedFd<'_> 
+    {
+        self.0.as_fd()
+    }
+}
+
+impl From<Socket> for OwnedFd
+{
+    fn from(value: Socket) -> Self {
+        value.0
+    }
+}
 
 impl Socket {
     /// Enable / disable Apple-only SO_NOSIGPIPE
@@ -249,6 +267,11 @@ impl Socket {
         Ok(())
     }
 
+    fn new_int(fd: RawFd) -> Self
+    {
+        Self(unsafe { OwnedFd::from_raw_fd(fd) })
+    }
+
     pub fn new(socket_type: c_int,  nonblocking: bool) -> Result<Self, io::Error> {
         // Set close-on-exec atomically with SOCK_CLOEXEC if possible.
         // Falls through to the portable but race-prone way for compatibility
@@ -258,7 +281,7 @@ impl Socket {
         #[cfg(not(any(target_vendor="apple", target_os = "haiku")))] {
             let type_flags = socket_type | SOCK_CLOEXEC | if nonblocking {SOCK_NONBLOCK} else {0};
             match cvt!(unsafe { socket(AF_UNIX, type_flags, 0) }) {
-                Ok(fd) => return Ok(Socket(fd)),
+                Ok(fd) => return Ok(Socket::new_int(fd)),
                 Err(ref e) if e.raw_os_error() == Some(EINVAL) => {/*try without*/}
                 Err(e) => return Err(e),
             }
@@ -266,11 +289,11 @@ impl Socket {
 
         // portable but race-prone
         let fd = cvt!(unsafe { socket(AF_UNIX, socket_type, 0) })?;
-        let socket = Socket(fd);
-        set_cloexec(socket.0, true)?;
+        let socket = Socket::new_int(fd);
+        set_cloexec(socket.0.as_raw_fd(), true)?;
         socket.set_nosigpipe(true)?;
         if nonblocking {
-            set_nonblocking(socket.0, true)?;
+            set_nonblocking(socket.0.as_raw_fd(), true)?;
         }
         Ok(socket)
     }
@@ -291,7 +314,7 @@ impl Socket {
             )))] {
                 let flags = SOCK_CLOEXEC | if nonblocking {SOCK_NONBLOCK} else {0};
                 match cvt_r!(accept4(fd, addr_ptr, len_ptr, flags)) {
-                    Ok(fd) => return Ok(Socket(fd)),
+                    Ok(fd) => return Ok(Socket::new_int(fd)),
                     Err(ref e) if e.raw_os_error() == Some(ENOSYS) => {/*try normal accept()*/},
                     Err(e) => return Err(e),
                 }
@@ -299,18 +322,18 @@ impl Socket {
 
             // Portable but not as efficient:
             let fd = cvt_r!(accept(fd, addr_ptr, len_ptr))?;
-            let socket = Socket(fd);
-            set_cloexec(socket.0, true)?;
+            let socket = Socket::new_int(fd);
+            set_cloexec(socket.0.as_raw_fd(), true)?;
             socket.set_nosigpipe(true)?;
             if nonblocking {
-                set_nonblocking(socket.0, true)?;
+                set_nonblocking(socket.0.as_raw_fd(), true)?;
             }
             Ok(socket)
         }) }
     }
 
     pub fn start_listening(&self) -> Result<(), io::Error> {
-        cvt!(unsafe { listen(self.0, LISTEN_BACKLOG) }).map(|_| () )
+        cvt!(unsafe { listen(self.0.as_raw_fd(), LISTEN_BACKLOG) }).map(|_| () )
     }
 
     pub fn try_clone_from(fd: RawFd) -> Result<Self, io::Error> {
@@ -324,7 +347,7 @@ impl Socket {
         // for compatibility with Linux < 2.6.24
         match cvt!(unsafe { fcntl(fd, F_DUPFD_CLOEXEC, 0) }) {
             Ok(cloned) => {
-                let socket = Socket(cloned);
+                let socket = Socket::new_int(cloned);
                 socket.set_nosigpipe(true)?;
                 return Ok(socket);
             },
@@ -333,8 +356,8 @@ impl Socket {
         }
 
         let cloned = cvt!(unsafe { dup(fd) })?;
-        let socket = Socket(cloned);
-        set_cloexec(socket.0, true)?;
+        let socket = Socket::new_int(cloned);
+        set_cloexec(socket.0.as_raw_fd(), true)?;
         socket.set_nosigpipe(true)?;
         Ok(socket)
     }
@@ -346,22 +369,22 @@ impl Socket {
         #[cfg(not(any(target_vendor="apple", target_os = "haiku")))] {
             let type_flags = socket_type | SOCK_CLOEXEC | if nonblocking {SOCK_NONBLOCK} else {0};
             match cvt!(unsafe { socketpair(AF_UNIX, type_flags, 0, fd_buf[..].as_mut_ptr()) }) {
-                Ok(_) => return Ok((Socket(fd_buf[0]), Socket(fd_buf[1]))),
+                Ok(_) => return Ok((Socket::new_int(fd_buf[0]), Socket::new_int(fd_buf[1]))),
                 Err(ref e) if e.raw_os_error() == Some(EINVAL) => {/*try without*/}
                 Err(e) => return Err(e),
             }
         }
 
         cvt!(unsafe { socketpair(AF_UNIX, socket_type, 0, fd_buf[..].as_mut_ptr()) })?;
-        let a = Socket(fd_buf[0]);
-        let b = Socket(fd_buf[1]);
-        set_cloexec(a.0, true)?;
-        set_cloexec(b.0, true)?;
+        let a = Socket::new_int(fd_buf[0]);
+        let b = Socket::new_int(fd_buf[1]);
+        set_cloexec(a.0.as_raw_fd(), true)?;
+        set_cloexec(b.0.as_raw_fd(), true)?;
         a.set_nosigpipe(true)?;
         b.set_nosigpipe(true)?;
         if nonblocking {
-            set_nonblocking(a.0, true)?;
-            set_nonblocking(b.0, true)?;
+            set_nonblocking(a.0.as_raw_fd(), true)?;
+            set_nonblocking(b.0.as_raw_fd(), true)?;
         }
         Ok((a, b))
     }

@@ -180,7 +180,7 @@ impl UnixSeqpacketConn {
     pub fn connect_unix_addr(addr: &UnixSocketAddr) -> Result<Self, io::Error> {
         let socket = Socket::new(SOCK_SEQPACKET, false)?;
         set_unix_addr(socket.as_raw_fd(), SetAddr::PEER,  addr)?;
-        Ok(UnixSeqpacketConn { fd: unsafe { OwnedFd::from_raw_fd(socket.into_raw_fd()) } })
+        Ok(UnixSeqpacketConn { fd: socket.into() })
     }
     /// Binds to an address before connecting to a listening seqpacet socket.
     pub fn connect_from_to_unix_addr(from: &UnixSocketAddr,  to: &UnixSocketAddr)
@@ -188,7 +188,7 @@ impl UnixSeqpacketConn {
         let socket = Socket::new(SOCK_SEQPACKET, false)?;
         set_unix_addr(socket.as_raw_fd(), SetAddr::LOCAL, from)?;
         set_unix_addr(socket.as_raw_fd(), SetAddr::PEER, to)?;
-        Ok(UnixSeqpacketConn { fd: unsafe { OwnedFd::from_raw_fd(socket.into_raw_fd()) } })
+        Ok(UnixSeqpacketConn { fd: socket.into() })
     }
 
     /// Creates a pair of unix-domain seqpacket conneections connected to each other.
@@ -206,8 +206,8 @@ impl UnixSeqpacketConn {
     /// ```
     pub fn pair() -> Result<(Self, Self), io::Error> {
         let (a, b) = Socket::pair(SOCK_SEQPACKET, false)?;
-        let a = UnixSeqpacketConn { fd: unsafe { OwnedFd::from_raw_fd(a.into_raw_fd()) } };
-        let b = UnixSeqpacketConn { fd: unsafe { OwnedFd::from_raw_fd(b.into_raw_fd()) } };
+        let a = UnixSeqpacketConn { fd: a.into() };
+        let b = UnixSeqpacketConn { fd: b.into() };
         Ok((a, b))
     }
 
@@ -380,7 +380,7 @@ impl UnixSeqpacketConn {
     /// ```
     pub fn try_clone(&self) -> Result<Self, io::Error> {
         let cloned = Socket::try_clone_from(self.fd.as_raw_fd())?;
-        Ok(UnixSeqpacketConn { fd: unsafe { OwnedFd::from_raw_fd(cloned.into_raw_fd() )} })
+        Ok(UnixSeqpacketConn { fd: cloned.into() })
     }
 
     /// Sets the read timeout to the duration specified.
@@ -568,7 +568,7 @@ impl UnixSeqpacketListener {
         let socket = Socket::new(SOCK_SEQPACKET, false)?;
         set_unix_addr(socket.as_raw_fd(), SetAddr::LOCAL, addr)?;
         socket.start_listening()?;
-        Ok(UnixSeqpacketListener { fd: unsafe { OwnedFd::from_raw_fd(socket.into_raw_fd()) } })
+        Ok(UnixSeqpacketListener { fd: socket.into() })
     }
 
     /// Returns the address the socket is listening on.
@@ -580,7 +580,7 @@ impl UnixSeqpacketListener {
     pub fn accept_unix_addr(&self)
     -> Result<(UnixSeqpacketConn, UnixSocketAddr), io::Error> {
         let (socket, addr) = Socket::accept_from(self.fd.as_raw_fd(), false)?;
-        let conn = UnixSeqpacketConn { fd: unsafe { OwnedFd::from_raw_fd(socket.into_raw_fd()) } };
+        let conn = UnixSeqpacketConn { fd: socket.into() };
         Ok((conn, addr))
     }
 
@@ -596,7 +596,7 @@ impl UnixSeqpacketListener {
     /// Creates a new file descriptor listening for the same connections.
     pub fn try_clone(&self) -> Result<Self, io::Error> {
         let cloned = Socket::try_clone_from(self.fd.as_raw_fd())?;
-        Ok(UnixSeqpacketListener { fd: unsafe { OwnedFd::from_raw_fd(cloned.into_raw_fd()) } })
+        Ok(UnixSeqpacketListener { fd: cloned.into() })
     }
 
     /// Sets a maximum duration to wait in a single `accept()` on this socket.
@@ -783,7 +783,7 @@ impl NonblockingUnixSeqpacketConn {
     pub fn connect_unix_addr(addr: &UnixSocketAddr) -> Result<Self, io::Error> {
         let socket = Socket::new(SOCK_SEQPACKET, true)?;
         set_unix_addr(socket.as_raw_fd(), SetAddr::PEER, addr)?;
-        Ok(NonblockingUnixSeqpacketConn { fd: unsafe { OwnedFd::from_raw_fd(socket.into_raw_fd()) } })
+        Ok(NonblockingUnixSeqpacketConn { fd: socket.into() })
     }
     /// Binds to an address before connecting to a listening seqpacket socket.
     pub fn connect_from_to_unix_addr(from: &UnixSocketAddr,  to: &UnixSocketAddr)
@@ -791,7 +791,7 @@ impl NonblockingUnixSeqpacketConn {
         let socket = Socket::new(SOCK_SEQPACKET, true)?;
         set_unix_addr(socket.as_raw_fd(), SetAddr::LOCAL, from)?;
         set_unix_addr(socket.as_raw_fd(), SetAddr::PEER, to)?;
-        Ok(NonblockingUnixSeqpacketConn { fd: unsafe { OwnedFd::from_raw_fd(socket.into_raw_fd()) } })
+        Ok(NonblockingUnixSeqpacketConn { fd: socket.into() })
     }
 
     /// Creates a pair of nonblocking unix-domain seqpacket conneections connected to each other.
@@ -809,8 +809,8 @@ impl NonblockingUnixSeqpacketConn {
     /// ```
     pub fn pair() -> Result<(Self, Self), io::Error> {
         let (a, b) = Socket::pair(SOCK_SEQPACKET, true)?;
-        let a = NonblockingUnixSeqpacketConn { fd: unsafe { OwnedFd::from_raw_fd(a.into_raw_fd()) } };
-        let b = NonblockingUnixSeqpacketConn { fd: unsafe { OwnedFd::from_raw_fd(b.into_raw_fd()) } };
+        let a = NonblockingUnixSeqpacketConn { fd: a.into() };
+        let b = NonblockingUnixSeqpacketConn { fd: b.into() };
         Ok((a, b))
     }
 
@@ -961,7 +961,7 @@ impl NonblockingUnixSeqpacketConn {
     pub fn try_clone(&self) -> Result<Self, io::Error> {
         let cloned = Socket::try_clone_from(self.fd.as_raw_fd())?;
         // nonblockingness is shared and therefore inherited
-        Ok(NonblockingUnixSeqpacketConn { fd: unsafe { OwnedFd::from_raw_fd(cloned.into_raw_fd()) } })
+        Ok(NonblockingUnixSeqpacketConn { fd: cloned.into() })
     }
 
     /// Shuts down the read, write, or both halves of this connection.
@@ -1062,7 +1062,7 @@ impl NonblockingUnixSeqpacketListener {
         let socket = Socket::new(SOCK_SEQPACKET, true)?;
         set_unix_addr(socket.as_raw_fd(), SetAddr::LOCAL, addr)?;
         socket.start_listening()?;
-        Ok(NonblockingUnixSeqpacketListener { fd: unsafe { OwnedFd::from_raw_fd(socket.into_raw_fd()) } })
+        Ok(NonblockingUnixSeqpacketListener { fd: socket.into() })
     }
 
     /// Returns the address this listener was bound to.
@@ -1090,7 +1090,7 @@ impl NonblockingUnixSeqpacketListener {
     pub fn accept_unix_addr(&self)
     -> Result<(NonblockingUnixSeqpacketConn, UnixSocketAddr), io::Error> {
         let (socket, addr) = Socket::accept_from(self.fd.as_raw_fd(), true)?;
-        let conn = NonblockingUnixSeqpacketConn { fd: unsafe { OwnedFd::from_raw_fd(socket.into_raw_fd()) } };
+        let conn = NonblockingUnixSeqpacketConn { fd: socket.into() };
         Ok((conn, addr))
     }
 
@@ -1119,6 +1119,6 @@ impl NonblockingUnixSeqpacketListener {
     pub fn try_clone(&self) -> Result<Self, io::Error> {
         let cloned = Socket::try_clone_from(self.fd.as_raw_fd())?;
         // nonblockingness is shared and therefore inherited
-        Ok(NonblockingUnixSeqpacketListener { fd: unsafe { OwnedFd::from_raw_fd(cloned.into_raw_fd()) } })
+        Ok(NonblockingUnixSeqpacketListener { fd: cloned.into() })
     }
 }
