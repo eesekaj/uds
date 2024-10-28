@@ -1,7 +1,6 @@
 use std::io::{self, ErrorKind, IoSlice, IoSliceMut};
 use std::net::Shutdown;
-use std::os::fd::{OwnedFd, BorrowedFd};
-use std::os::unix::io::{AsFd, RawFd, FromRawFd, AsRawFd, IntoRawFd};
+use std::os::unix::io::{OwnedFd, BorrowedFd, AsFd, RawFd, FromRawFd, AsRawFd, IntoRawFd};
 use std::path::Path;
 use std::time::Duration;
 

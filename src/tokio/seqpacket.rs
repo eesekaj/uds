@@ -2,8 +2,7 @@ use crate::{nonblocking, UnixSocketAddr, ConnCredentials};
 
 use std::io::{self, IoSlice, IoSliceMut};
 use std::net::Shutdown;
-use std::os::fd::AsFd;
-use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
+use std::os::unix::io::{AsFd, AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::path::Path;
 
 use tokio_crate::io::Interest;

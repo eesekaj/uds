@@ -4,8 +4,7 @@
 /// Several adapted from std.
 
 use std::convert::TryInto;
-use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
-use std::os::unix::io::{RawFd, AsRawFd, IntoRawFd};
+use std::os::unix::io::{RawFd, AsFd, AsRawFd, IntoRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::io::{self, ErrorKind};
 use std::mem;
 use std::time::Duration;
@@ -261,7 +260,7 @@ impl Socket {
             unsafe {
                 let nosigpipe = &(nosigpipe as c_int) as *const c_int as *const c_void;
                 let int_size = mem::size_of::<c_int>() as socklen_t;
-                cvt!(setsockopt(self.0, SOL_SOCKET, SO_NOSIGPIPE, nosigpipe, int_size))?;
+                cvt!(setsockopt(self.0.as_raw_fd(), SOL_SOCKET, SO_NOSIGPIPE, nosigpipe, int_size))?;
             }
         }
         Ok(())
