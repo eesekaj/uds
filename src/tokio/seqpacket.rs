@@ -2,6 +2,7 @@ use crate::{nonblocking, UnixSocketAddr, ConnCredentials};
 
 use std::io::{self, IoSlice, IoSliceMut};
 use std::net::Shutdown;
+use std::os::fd::AsFd;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::path::Path;
 
@@ -9,6 +10,7 @@ use tokio_crate::io::Interest;
 use tokio_crate::io::unix::AsyncFd;
 
 /// An I/O object representing a Unix Sequenced-packet socket.
+#[derive(Debug)]
 pub struct UnixSeqpacketConn {
     io: AsyncFd<nonblocking::UnixSeqpacketConn>,
 }
@@ -115,6 +117,10 @@ impl UnixSeqpacketConn {
     pub async fn send(&mut self,  packet: &[u8]) -> io::Result<usize> {
         self.io.async_io(Interest::WRITABLE, |conn| conn.send(packet) ).await
     }
+    /// Sends a packet to the socket's peer with specified flags.
+    pub async fn send_flags(&mut self,  packet: &[u8], flags: i32) -> io::Result<usize> {
+        self.io.async_io(Interest::WRITABLE, |conn| conn.send_flags(packet, flags) ).await
+    }
     /// Receives a packet from the socket's peer.
     pub async fn recv(&mut self,  buffer: &mut[u8]) -> io::Result<usize> {
         self.io.async_io(Interest::READABLE, |conn| conn.recv(buffer) ).await
@@ -176,7 +182,11 @@ impl IntoRawFd for UnixSeqpacketConn {
     }
 }
 
-
+impl AsFd for UnixSeqpacketConn {
+    fn as_fd(&self) -> std::os::unix::prelude::BorrowedFd<'_> {
+        self.io.get_ref().as_fd()
+    }
+}
 
 /// An I/O object representing a Unix Sequenced-packet socket.
 pub struct UnixSeqpacketListener {
@@ -263,5 +273,11 @@ impl AsRawFd for UnixSeqpacketListener {
 impl IntoRawFd for UnixSeqpacketListener {
     fn into_raw_fd(self) -> RawFd {
         self.io.into_inner().into_raw_fd()
+    }
+}
+
+impl AsFd for UnixSeqpacketListener {
+    fn as_fd(&self) -> std::os::unix::prelude::BorrowedFd<'_> {
+        self.io.get_ref().as_fd()
     }
 }

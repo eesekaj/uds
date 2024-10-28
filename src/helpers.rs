@@ -234,6 +234,7 @@ impl AsRawFd for Socket {
     }
 }
 
+
 impl Socket {
     /// Enable / disable Apple-only SO_NOSIGPIPE
     fn set_nosigpipe(&self,  nosigpipe: bool) -> Result<(), io::Error> {
