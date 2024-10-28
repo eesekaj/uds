@@ -55,14 +55,14 @@ macro_rules! impl_mio_if_enabled {($type:tt) => {
     impl Source_08 for $type {
         fn register(&mut self,  registry: &Registry_08,  token: Token_08,  interest: Interest_08)
         -> Result<(), io::Error> {
-            SourceFd_08(&self.fd).register(registry, token, interest)
+            SourceFd_08(&self.fd.as_raw_fd()).register(registry, token, interest)
         }
         fn reregister(&mut self,  registry: &Registry_08,  token: Token_08,  interest: Interest_08)
         -> Result<(), io::Error> {
-            SourceFd_08(&self.fd).reregister(registry, token, interest)
+            SourceFd_08(&self.fd.as_raw_fd()).reregister(registry, token, interest)
         }
         fn deregister(&mut self,  registry: &Registry_08) -> Result<(), io::Error> {
-            SourceFd_08(&self.fd).deregister(registry)
+            SourceFd_08(&self.fd.as_raw_fd()).deregister(registry)
         }
     }
 
@@ -70,14 +70,14 @@ macro_rules! impl_mio_if_enabled {($type:tt) => {
     impl<'a> Source_08 for &'a $type {
         fn register(&mut self,  registry: &Registry_08,  token: Token_08,  interest: Interest_08)
         -> Result<(), io::Error> {
-            SourceFd_08(&self.fd).register(registry, token, interest)
+            SourceFd_08(&self.fd.as_raw_fd()).register(registry, token, interest)
         }
         fn reregister(&mut self,  registry: &Registry_08,  token: Token_08,  interest: Interest_08)
         -> Result<(), io::Error> {
-            SourceFd_08(&self.fd).reregister(registry, token, interest)
+            SourceFd_08(&self.fd.as_raw_fd()).reregister(registry, token, interest)
         }
         fn deregister(&mut self,  registry: &Registry_08) -> Result<(), io::Error> {
-            SourceFd_08(&self.fd).deregister(registry)
+            SourceFd_08(&self.fd.as_raw_fd()).deregister(registry)
         }
     }
 }}
