@@ -1,4 +1,4 @@
-extern crate uds;
+extern crate uds_fork;
 extern crate libc;
 
 use std::os::unix::net::{UnixListener, UnixStream, UnixDatagram};
@@ -10,8 +10,8 @@ use std::mem::size_of;
 
 use libc::{sockaddr, sockaddr_un, socklen_t};
 
-use uds::{UnixSocketAddr, UnixSocketAddrRef};
-use uds::{UnixListenerExt, UnixStreamExt, UnixDatagramExt};
+use uds_fork::{UnixSocketAddr, UnixSocketAddrRef};
+use uds_fork::{UnixListenerExt, UnixStreamExt, UnixDatagramExt};
 
 #[cfg(any(target_os="linux", target_os="android"))]
 #[test]
@@ -94,7 +94,9 @@ fn abstract_not_supported() {
 #[test]
 fn max_regular_path_addr() {
     let max_regular_len = UnixSocketAddr::max_path_len()-1;
-    let max_regular_path = std::iter::repeat('R').take(max_regular_len).collect::<String>();
+    let max_regular_path_base = "/tmp/";
+    let max_regular_path_other = std::iter::repeat('R').take(max_regular_len - max_regular_path_base.len()).collect::<String>();
+    let max_regular_path = [max_regular_path_base, max_regular_path_other.as_str()].concat();
     let max_regular_addr = UnixSocketAddr::from_path(&max_regular_path)
         .expect("create path address with max regular length");
     assert_eq!(max_regular_addr.as_ref(), UnixSocketAddrRef::Path(max_regular_path.as_ref()));
@@ -126,7 +128,9 @@ fn max_regular_path_addr() {
 #[test]
 fn max_path_addr() {// std fails this!
     let max_len = UnixSocketAddr::max_path_len();
-    let max_path = std::iter::repeat('L').take(max_len).collect::<String>();
+    let max_regular_path_base = "/tmp/";
+    let max_regular_path_other = std::iter::repeat('L').take(max_len - max_regular_path_base.len()).collect::<String>();
+    let max_path = [max_regular_path_base, max_regular_path_other.as_str()].concat();
     let max_addr = UnixSocketAddr::from_path(&max_path)
         .expect("create path address with max length");
     assert_eq!(max_addr.as_ref(), UnixSocketAddrRef::Path(max_path.as_ref()));
@@ -266,17 +270,22 @@ fn abstract_from_ffi() {
 }
 
 #[test]
-fn unconnected_datagrams() {
-    let _ = remove_file("corner a.sock");
-    let _ = remove_file("corner b.sock");
-    let _ = remove_file("corner c.sock");
-    let a = UnixDatagram::bind("corner a.sock").expect("create 1st datagram socket");
-    let b = UnixDatagram::bind("corner b.sock").expect("create 2nd datagram socket");
-    let c = UnixDatagram::bind("corner c.sock").expect("create 3rd datagram socket");
+fn unconnected_datagrams() 
+{
+    let p1 = "/tmp/corner_a.sock";
+    let p2 = "/tmp/corner_b.sock";
+    let p3 = "/tmp/corner_c.sock";
 
-    let addr_a = UnixSocketAddr::new("corner a.sock").unwrap();
-    let addr_b = UnixSocketAddr::new("corner b.sock").unwrap();
-    let addr_c = UnixSocketAddr::new("corner c.sock").unwrap();
+    let _ = remove_file(p1);
+    let _ = remove_file(p2);
+    let _ = remove_file(p3);
+    let a = UnixDatagram::bind(p1).expect("create 1st datagram socket");
+    let b = UnixDatagram::bind(p2).expect("create 2nd datagram socket");
+    let c = UnixDatagram::bind(p3).expect("create 3rd datagram socket");
+
+    let addr_a = UnixSocketAddr::new(p1).unwrap();
+    let addr_b = UnixSocketAddr::new(p2).unwrap();
+    let addr_c = UnixSocketAddr::new(p3).unwrap();
     let mut buf = [0; 10];
 
     a.send_to_unix_addr(b"red", &addr_b).expect("send datagram to b");
@@ -293,38 +302,42 @@ fn unconnected_datagrams() {
     assert_eq!(&buf, b"cyan\0\0\0\0\0\0");
     let (len, std_addr) = a.recv_from(&mut buf).expect("receive what was peeked");
     #[cfg(not(target_os="openbsd"))]
-    assert_eq!(std_addr.as_pathname(), Some(Path::new("corner b.sock")));
+    assert_eq!(std_addr.as_pathname(), Some(Path::new(p2)));
     assert_eq!(&buf[..len], b"cyan");
 
-    c.send_to(b"blue", "corner a.sock").expect("send datagram to a");
+    c.send_to(b"blue", p1).expect("send datagram to a");
     c.send_to_unix_addr(b"alpha", &addr_a).expect("send datagram to a");
     let (buf_a, buf_b) = buf.split_at_mut(2);
     let (len, addr) = c.recv_vectored_from_unix_addr(&mut[
         IoSliceMut::new(&mut buf_b[..3]), IoSliceMut::new(buf_a)
     ]).expect("receive from b");
-    assert_eq!(addr.as_pathname(), Some(Path::new("corner b.sock")));
+    assert_eq!(addr.as_pathname(), Some(Path::new(p2)));
     assert_eq!(len, 5);
     assert_eq!(&buf, b"engre\0\0\0\0\0");
 
-    let _ = remove_file("corner a.sock");
-    let _ = remove_file("corner b.sock");
-    let _ = remove_file("corner c.sock");
+    let _ = remove_file(p1);
+    let _ = remove_file(p2);
+    let _ = remove_file(p3);
 }
 
 #[test]
-fn datagram_peek_vectored() {
-    let _ = std::fs::remove_file("datagram_server.sock");
-    let server = UnixDatagram::bind("datagram_server.sock").unwrap();
+fn datagram_peek_vectored() 
+{
+    let p1 = "/tmp/datagram_server.sock";
+    let p2 = "/tmp/datagram_client.sock";
+
+    let _ = std::fs::remove_file(p1);
+    let server = UnixDatagram::bind(p1).unwrap();
 
     let client = UnixDatagram::unbound().unwrap();
     if cfg!(any(target_os="linux", target_os="android")) {
         // get a random abstract address
         client.bind_to_unix_addr(&UnixSocketAddr::new_unspecified()).unwrap();
     } else {
-        let _ = std::fs::remove_file("datagram_client.sock");
-        client.bind_to_unix_addr(&UnixSocketAddr::new("datagram_client.sock").unwrap()).unwrap();
+        let _ = std::fs::remove_file(p2);
+        client.bind_to_unix_addr(&UnixSocketAddr::new(p2).unwrap()).unwrap();
     }
-    client.connect("datagram_server.sock").unwrap();
+    client.connect(p1).unwrap();
     client.send(b"headerbodybody").unwrap();
 
     let (mut buf_a, mut buf_b) = ([0; 6], [0; 12]);
@@ -336,13 +349,13 @@ fn datagram_peek_vectored() {
     assert_eq!(&buf_a, b"header");
     assert_eq!(&buf_b[..8], b"bodybody");
 
-    std::fs::remove_file("datagram_server.sock").unwrap();
-    let _ = std::fs::remove_file("datagram_client.sock");
+    std::fs::remove_file(p1).unwrap();
+    let _ = std::fs::remove_file(p2);
 }
 
 #[test]
 fn from_raw_path() {
-    let path_addr = UnixSocketAddr::from_path("a/path.sock").unwrap();
+    let path_addr = UnixSocketAddr::from_path("/tmp/path.sock").unwrap();
     let a = unsafe {
         let (raw_addr, raw_len) = path_addr.as_raw();
         UnixSocketAddr::from_raw(raw_addr as *const sockaddr_un as *const sockaddr, raw_len)

@@ -1,3 +1,10 @@
+Version 0.5.0 (2026-01-16)
+==========================
+* A crate was forked due to stale status.
+* Moved to Rust 2024
+* Added OwnedFd and BorrowedFd to comply with Rust specifications.
+* Removed MIO and Tokio. Use AsyncFD and implement MIO for the type youself. (Maybe MIO will be readded later).
+
 Version 0.4.2 (2023-12-31)
 ==========================
 * Reduce max path length by one on Apple OSes, Illumos and Solaris. ([#19](https://github.com/tormol/uds/pull/19))  
@@ -12,7 +19,7 @@ Version 0.4.1 (2023-08-20)
 * Tokio support is back, now for tokio 1.\*.
 * There's now also tokio versions of the extensions traits:
   They don't have any methods that would be async, such as `send_fds()` or `receive_fds()`,
-  but allow binding and connecting to `uds::UnixSocketAddr`s, and getting information about the peer.
+  but allow binding and connecting to `uds_fork::UnixSocketAddr`s, and getting information about the peer.
 
 Version 0.4.0 (2023-08-14)
 ==========================

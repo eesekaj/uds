@@ -1,29 +1,19 @@
 [package]
-name = "uds"
-version = "0.4.2"
+name = "uds-fork"
+version = "0.5.0"
 description = """
 A unix domain socket crate that supports abstract addresses, fd-passing and seqpacket sockets.
 """
 readme = "README.md"
-repository = "https://github.com/tormol/uds"
+repository = "https://github.com/eesekaj/uds/tree/master"
 license = "Apache-2.0 OR MIT"
-authors = ["Torbjørn Birch Moltu <t.b.moltu@lyse.net>"]
+authors = ["Torbjørn Birch Moltu <t.b.moltu@lyse.net>", "Aleksandr Morozov <alex@nixd.org>"]
 keywords = ["unix", "socket", "seqpacket", "abstract", "fdpassing"]
 categories = ["os::unix-apis", "asynchronous"]
-edition = "2021"
+edition = "2024"
 exclude = ["tests", "src/bin", ".vscode"]
 
 [target."cfg(unix)".dependencies]
-libc = "0.2.161" # peer credentials for DragonFly BSD and NetBSD, SO_PEERSEC on all Linux architectures
-# enabling this feature implements the extension traits for mio 0.8's unix socket types
-# and Source for this crate's non-blocking seqpacket types.
-mio_08 = { package = "mio", version = "0.8", features = ["os-ext", "net"], optional = true }
-# .28 for AsyncFd.async_io() helper
-tokio = { version = "1.41", features = ["net"], optional=true }
+libc = "~0.2"
 
-[target."cfg(unix)".dev-dependencies]
-# rt-multi-thread is required for #[tokio::main] in doctests
-tokio = { version = "1.41", features = ["io-util", "macros", "rt", 'rt-multi-thread'] }
 
-[package.metadata.docs.rs]
-features = ["mio_08", "tokio"]

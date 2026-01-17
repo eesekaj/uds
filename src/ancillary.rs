@@ -8,6 +8,7 @@
 
 use std::ops::{Deref, DerefMut};
 use std::borrow::{Borrow, BorrowMut};
+use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::io::RawFd;
 use std::io::{self, ErrorKind, IoSlice, IoSliceMut};
 use std::alloc::{self, Layout};
@@ -52,96 +53,141 @@ type ControlLen = usize;
 type ControlLen = libc::socklen_t;
 
 /// Safe wrapper around `sendmsg()`.
-pub fn send_ancillary(
-    socket: RawFd,  to: Option<&UnixSocketAddr>,  flags: c_int,
-    bytes: &[IoSlice],  fds: &[RawFd],  creds: Option<SendCredentials>
-) -> Result<usize, io::Error> {
+pub 
+fn send_ancillary<FD: AsFd>(
+    socket: FD,  
+    to: Option<&UnixSocketAddr>,  
+    flags: c_int,
+    bytes: &[IoSlice],  
+    fds: Vec<OwnedFd>,  
+    creds: Option<SendCredentials>
+) -> Result<usize, io::Error> 
+{
     #[cfg(not(any(target_os="linux", target_os="android")))]
     let _ = creds; // silence `unused` warning
-    unsafe {
+    unsafe 
+    {
         let mut msg: msghdr = mem::zeroed();
         msg.msg_name = ptr::null_mut();
         msg.msg_namelen = 0;
         msg.msg_iov = bytes.as_ptr() as *mut iovec;
-        msg.msg_iovlen = match bytes.len().try_into() {
-            Ok(len) => len,
-            Err(_) => {
-                return Err(io::Error::new(ErrorKind::InvalidInput, "too many byte slices"));
-            }
-        };
+        msg.msg_iovlen = 
+            bytes.len().try_into() 
+                .map_err(|e|
+                    io::Error::new(ErrorKind::InvalidInput, 
+                        format!("too many byte slices {}", e))
+                )?;
+
         msg.msg_flags = 0;
         msg.msg_control = ptr::null_mut();
         msg.msg_controllen = 0;
 
-        if let Some(addr) = to {
+        if let Some(addr) = to 
+        {
             let (addr, len) = addr.as_raw();
             msg.msg_name = addr as *const sockaddr_un as *const c_void as *mut c_void;
             msg.msg_namelen = len;
         }
 
         let mut needed_capacity = 0;
+
         #[cfg(any(target_os="linux", target_os="android"))]
-        let creds = creds.map(|creds| {
-            let creds = creds.into_raw();
-            needed_capacity += CMSG_SPACE(mem::size_of_val(&creds) as u32);
-            creds
-        });
-        if fds.len() > 0 {
-            if fds.len() > 0xff_ff_ff {
+        let creds = 
+            creds.map(
+                |creds| 
+                {
+                    let creds = creds.into_raw();
+                    needed_capacity += CMSG_SPACE(mem::size_of_val(&creds) as u32);
+                    creds
+                }
+            );
+
+        if fds.len() > 0 
+        {
+            if fds.len() > 0xff_ff_ff 
+            {
                 // need to prevent truncation.
                 // I use a lower limit in case the macros don't handle overflow.
-                return Err(io::Error::new(ErrorKind::InvalidInput, "too many file descriptors"));
+                return Err(
+                    io::Error::new(ErrorKind::InvalidInput, "too many file descriptors")
+                );
             }
-            #[cfg(not(any(target_os="illumos", target_os="solaris")))] {
-                needed_capacity += CMSG_SPACE(mem::size_of_val::<[RawFd]>(fds) as u32);
+            #[cfg(not(any(target_os="illumos", target_os="solaris")))] 
+            {
+                needed_capacity += CMSG_SPACE(mem::size_of_val::<[OwnedFd]>(&fds) as u32);
             }
-            #[cfg(any(target_os="illumos", target_os="solaris"))] {
-                return Err(io::Error::new(
-                    ErrorKind::Other,
-                    "ancillary data support is not implemented yet for Illumos or Solaris"
-                ))
+            #[cfg(any(target_os="illumos", target_os="solaris"))] 
+            {
+                return Err(
+                    io::Error::new(
+                        ErrorKind::Other,
+                        "ancillary data support is not implemented yet for Illumos or Solaris"
+                    )
+                );
             }
         }
+
         // stack buffer which should be big enough for most scenarios
         #[repr(C)]
         struct AncillaryFixedBuf(/*for alignment*/[cmsghdr; 0], [u8; 256]);
         let mut ancillary_buf = AncillaryFixedBuf([], [0; 256]);
 
         msg.msg_controllen = needed_capacity as ControlLen;
-        if needed_capacity != 0 {
-            if needed_capacity as usize <= mem::size_of::<AncillaryFixedBuf>() {
+
+        if needed_capacity != 0 
+        {
+            if needed_capacity as usize <= mem::size_of::<AncillaryFixedBuf>() 
+            {
                 msg.msg_control = &mut ancillary_buf.1 as *mut [u8; 256] as *mut c_void;
-            } else {
-                let layout = Layout::from_size_align(
-                    needed_capacity as usize,
-                    mem::align_of::<cmsghdr>()
-                ).unwrap();
+            } 
+            else 
+            {
+                let layout = 
+                    Layout::from_size_align(
+                        needed_capacity as usize,
+                        mem::align_of::<cmsghdr>()
+                    )
+                    .unwrap();
+
                 msg.msg_control = alloc::alloc(layout) as *mut c_void;
             }
 
-            #[cfg(not(any(target_os="illumos", target_os="solaris")))] {
+            #[cfg(not(any(target_os="illumos", target_os="solaris")))] 
+            {
                 let header_ptr = CMSG_FIRSTHDR(&mut msg);
                 assert!(!header_ptr.is_null(), "CMSG_FIRSTHDR returned unexpected NULL pointer");
+
                 #[allow(unused_mut)]
                 let mut header = &mut*header_ptr;
-                #[cfg(any(target_os="linux", target_os="android"))] {
-                    if let Some(creds) = creds {
+                
+                #[cfg(any(target_os="linux", target_os="android"))] 
+                {
+                    if let Some(creds) = creds 
+                    {
                         header.cmsg_level = SOL_SOCKET;
                         header.cmsg_type = SCM_CREDENTIALS;
                         header.cmsg_len = CMSG_LEN(mem::size_of_val(&creds) as u32) as ControlLen;
+                        
                         *(CMSG_DATA(header) as *mut c_void as *mut _) = creds;
+                        
                         let header_ptr = CMSG_NXTHDR(&mut msg, header);
                         assert!(!header_ptr.is_null(), "CMSG_NXTHDR returned unexpected NULL pointer");
                         header = &mut*header_ptr;
                     }
                 }
 
-                if fds.len() > 0 {
+                if fds.len() > 0 
+                {
+                    use std::os::fd::IntoRawFd;
+
                     header.cmsg_level = SOL_SOCKET;
                     header.cmsg_type = SCM_RIGHTS;
-                    header.cmsg_len = CMSG_LEN(mem::size_of_val(fds) as u32) as ControlLen;
+                    header.cmsg_len = CMSG_LEN(mem::size_of_val::<[OwnedFd]>(&fds) as u32) as ControlLen;
+                    
                     let mut dst = CMSG_DATA(header) as *mut c_void as *mut RawFd;
-                    for &fd in fds {
+                    
+                    for fd in fds.into_iter().map(|fd| fd.into_raw_fd()) 
+                    {
                         ptr::write_unaligned(dst, fd);
                         dst = dst.add(1);
                     }
@@ -149,10 +195,14 @@ pub fn send_ancillary(
             }
         }
 
-        let result = cvt_r!(sendmsg(socket, &msg, flags | MSG_NOSIGNAL));
+        let result = 
+            cvt_r!(sendmsg(socket.as_fd().as_raw_fd(), &msg, flags | MSG_NOSIGNAL));
 
-        if needed_capacity as usize > mem::size_of::<AncillaryFixedBuf>() {
-            let layout = Layout::from_size_align(needed_capacity as usize, mem::align_of::<cmsghdr>()).unwrap();
+        if needed_capacity as usize > mem::size_of::<AncillaryFixedBuf>() 
+        {
+            let layout = 
+                Layout::from_size_align(needed_capacity as usize, mem::align_of::<cmsghdr>()).unwrap();
+            
             alloc::dealloc(msg.msg_control as *mut u8, layout);
         }
 
@@ -166,49 +216,69 @@ pub fn send_ancillary(
 ///
 /// For reasonable ancillary capacities it uses a stack-based array.
 #[repr(C)]
-pub struct AncillaryBuf {
+pub struct AncillaryBuf 
+{
     capacity: ControlLen,
     ptr: *mut u8,
     _align: [cmsghdr; 0],
     on_stack: [u8; Self::MAX_STACK_CAPACITY],
 }
-impl Drop for AncillaryBuf {
-    fn drop(&mut self) {
-        unsafe {
-            if self.capacity as usize > Self::MAX_STACK_CAPACITY {
-                let layout = Layout::from_size_align(
-                    self.capacity as usize,
-                    mem::align_of::<cmsghdr>()
-                ).unwrap();
+impl Drop for AncillaryBuf 
+{
+    fn drop(&mut self) 
+    {
+        unsafe 
+        {
+            if self.capacity as usize > Self::MAX_STACK_CAPACITY 
+            {
+                let layout = 
+                    Layout::from_size_align(self.capacity as usize, mem::align_of::<cmsghdr>())
+                        .unwrap();
+
                 alloc::dealloc(self.ptr as *mut u8, layout);
             }
         }
     }
 }
-impl AncillaryBuf {
+impl AncillaryBuf 
+{
     pub const MAX_STACK_CAPACITY: usize = 256;
+
     pub const MAX_CAPACITY: usize = ControlLen::max_value() as usize;
-    pub fn with_capacity(bytes: usize) -> Self {
-        Self {
-            capacity: bytes as ControlLen,
-            ptr: match bytes {
-                0..=Self::MAX_STACK_CAPACITY => ptr::null_mut(),
-                0..=Self::MAX_CAPACITY => unsafe {
-                    let layout = Layout::from_size_align(
-                        bytes as usize,
-                        mem::align_of::<cmsghdr>()
-                    ).unwrap();
-                    alloc::alloc_zeroed(layout)
+
+    pub fn with_capacity(bytes: usize) -> Self 
+    {
+        Self 
+        {
+            capacity: 
+                bytes as ControlLen,
+            ptr: 
+                match bytes 
+                {
+                    0..=Self::MAX_STACK_CAPACITY => ptr::null_mut(),
+                    0..=Self::MAX_CAPACITY => 
+                        unsafe 
+                        {
+                            let layout = Layout::from_size_align(
+                                bytes as usize,
+                                mem::align_of::<cmsghdr>()
+                            ).unwrap();
+                            alloc::alloc_zeroed(layout)
+                        },
+                    _ => panic!("capacity is too high"),
                 },
-                _ => panic!("capacity is too high"),
-            },
-            _align: [],
-            on_stack: [0; Self::MAX_STACK_CAPACITY],
+            _align: 
+                [],
+            on_stack: 
+                [0; Self::MAX_STACK_CAPACITY],
         }
     }
-    pub fn with_fd_capacity(num_fds: usize) -> Self {
+    pub 
+    fn with_fd_capacity(num_fds: usize) -> Self 
+    {
         #[cfg(not(any(target_os="illumos", target_os="solaris")))]
-        unsafe {
+        unsafe 
+        {
             // To prevent truncation or overflow (in CMSG macros or elsewhere)
             // cmsghdr having bigger alignment than RawFd isn't a problem,
             //  as that doesn't affect the maximum capacity.
@@ -221,14 +291,21 @@ impl AncillaryBuf {
             //  problem. (libc doesn't have a const_fn feature, probably
             //  because old compilers wouldn't be able to even parse it.
             let max_fds =
-                (c_uint::max_value() - CMSG_SPACE(0)) as usize
-                / mem::size_of::<RawFd>();
-            if num_fds == 0 {
-                Self::with_capacity(0)
-            } else if num_fds <= max_fds {
+                (c_uint::max_value() - CMSG_SPACE(0)) as usize / mem::size_of::<RawFd>();
+
+            if num_fds == 0 
+            {
+                return Self::with_capacity(0)
+            } 
+            else if num_fds <= max_fds 
+            {
                 let payload_bytes = num_fds * mem::size_of::<RawFd>();
-                Self::with_capacity(CMSG_SPACE(payload_bytes as c_uint) as usize)
-            } else {
+                
+                return 
+                    Self::with_capacity(CMSG_SPACE(payload_bytes as c_uint) as usize)
+            } 
+            else 
+            {
                 panic!("too many file descriptors for ancillary buffer length")
             }
         }
@@ -237,9 +314,12 @@ impl AncillaryBuf {
         }
     }
 }
-impl Default for AncillaryBuf {
-    fn default() -> Self {
-        Self {
+impl Default for AncillaryBuf 
+{
+    fn default() -> Self 
+    {
+        Self 
+        {
             capacity: Self::MAX_STACK_CAPACITY as ControlLen,
             ptr: ptr::null_mut(),
             _align: [],
@@ -248,68 +328,96 @@ impl Default for AncillaryBuf {
     }
 }
 
-impl Deref for AncillaryBuf {
+impl Deref for AncillaryBuf 
+{
     type Target = [u8];
-    fn deref(&self) -> &[u8] {
-        unsafe {
+
+    fn deref(&self) -> &[u8] 
+    {
+        unsafe 
+        {
             self.on_stack.get(..self.capacity as usize)
                 .unwrap_or_else(|| slice::from_raw_parts(self.ptr, self.capacity as usize) )
         }
     }
 }
-impl DerefMut for AncillaryBuf {
-    fn deref_mut(&mut self) -> &mut[u8] {
-        unsafe {
-            match self.on_stack.get_mut(..self.capacity as usize) {
+impl DerefMut for AncillaryBuf 
+{
+    fn deref_mut(&mut self) -> &mut[u8] 
+    {
+        unsafe 
+        {
+            match self.on_stack.get_mut(..self.capacity as usize) 
+            {
                 Some(on_stack) => on_stack,
                 None => slice::from_raw_parts_mut(self.ptr, self.capacity as usize)
             }
         }
     }
 }
-impl Borrow<[u8]> for AncillaryBuf {
-    fn borrow(&self) -> &[u8] {
+impl Borrow<[u8]> for AncillaryBuf 
+{
+    fn borrow(&self) -> &[u8] 
+    {
         &*self
     }
 }
-impl BorrowMut<[u8]> for AncillaryBuf {
-    fn borrow_mut(&mut self) -> &mut[u8] {
+impl BorrowMut<[u8]> for AncillaryBuf 
+{
+    fn borrow_mut(&mut self) -> &mut[u8] 
+    {
         &mut*self
     }
 }
-impl AsRef<[u8]> for AncillaryBuf {
-    fn as_ref(&self) -> &[u8] {
+impl AsRef<[u8]> for AncillaryBuf 
+{
+    fn as_ref(&self) -> &[u8] 
+    {
         &*self
     }
 }
-impl AsMut<[u8]> for AncillaryBuf {
-    fn as_mut(&mut self) -> &mut[u8] {
+impl AsMut<[u8]> for AncillaryBuf 
+{
+    fn as_mut(&mut self) -> &mut[u8] 
+    {
         &mut*self
     }
 }
 
-pub struct FdSliceIterator<'a> {
+pub struct FdSliceIterator<'a> 
+{
     pos: usize,
     slice: &'a FdSlice<'a>,
 }
-impl<'a> Iterator for FdSliceIterator<'a> {
+
+impl<'a> Iterator for FdSliceIterator<'a> 
+{
     type Item = RawFd;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.slice.len > self.pos {
+    fn next(&mut self) -> Option<Self::Item> 
+    {
+        if self.slice.len > self.pos 
+        {
             // SAFETY: Safe as long as FdSlice is created correctly
-            let ret = unsafe {
-                self.slice.unaligned_ptr.add(self.pos).read_unaligned()
-            };
+            let ret = 
+                unsafe 
+                {
+                    self.slice.unaligned_ptr.add(self.pos).read_unaligned()
+                };
+
             self.pos += 1;
-            Some(ret)
-        } else {
-            None
+            
+            return Some(ret);
+        } 
+        else 
+        {
+            return None;
         }
     }
 }
 
-pub struct FdSlice<'a> {
+pub struct FdSlice<'a> 
+{
     /// The underlying buffer as ptr
     unaligned_ptr: *const RawFd,
     /// The amount of [`RawFd`]s in this [`FdSlice`]
@@ -317,13 +425,17 @@ pub struct FdSlice<'a> {
     /// The lifetime of the underlying buffer
     _borrow: PhantomData<&'a RawFd>,
 }
-impl<'a> FdSlice<'a> {
+
+impl<'a> FdSlice<'a> 
+{
     /// Creates a new [`FdSlice`] with the lifetime from a `unaligned_ptr` and a `len`.
     ///
     /// # Safety
     /// The unaligned_ptr does not need to be properly aligned, but it needs to point to at least `len` [`RawFd`]s.
     /// The unaligned_ptr may not be null.
-    unsafe fn new(unaligned_ptr: *const RawFd, len: usize) -> Self {
+    unsafe 
+    fn new(unaligned_ptr: *const RawFd, len: usize) -> Self 
+    {
         debug_assert!(!unaligned_ptr.is_null(), "No NULL pointer for FdSlice");
         Self {
             unaligned_ptr,
@@ -333,14 +445,18 @@ impl<'a> FdSlice<'a> {
     }
 
     /// The amount of [`RawFd`] in this [`FdSlice`]
-    pub fn len(&self) -> usize {
+    pub 
+    fn len(&self) -> usize {
         self.len
     }
 
     /// Returns an iterator over the elements of this [`FdSlice`]
-    pub fn iter(&self) -> FdSliceIterator {
+    pub 
+    fn iter(&self) -> FdSliceIterator<'_>
+    {
         (&self).into_iter()
     }
+
 }
 impl<'a> IntoIterator for &'a FdSlice<'a> {
     type Item = RawFd;
@@ -372,7 +488,8 @@ pub enum AncillaryItem<'a> {
 }
 
 /// An iterator over ancillary messages received with `recv_ancillary()`.
-pub struct Ancillary<'a> {
+pub struct Ancillary<'a> 
+{
     // addr and bytes are not used here:
     // * addr is usually placed on the stack by the calling wrapper method,
     //   which means that its lifetime ends when this struct is returned.
@@ -384,14 +501,21 @@ pub struct Ancillary<'a> {
     #[cfg(not(any(target_os="illumos", target_os="solaris")))]
     next_message: *mut cmsghdr,
 }
-impl<'a> Iterator for Ancillary<'a> {
+
+impl<'a> Iterator for Ancillary<'a> 
+{
     type Item = AncillaryItem<'a>;
+
     #[cfg(not(any(target_os="illumos", target_os="solaris")))]
-    fn next(&mut self) -> Option<AncillaryItem<'a>> {
-        unsafe {
-            if self.next_message.is_null() {
+    fn next(&mut self) -> Option<AncillaryItem<'a>> 
+    {
+        unsafe 
+        {
+            if self.next_message.is_null() 
+            {
                 return None;
             }
+
             let msg_bytes = (*self.next_message).cmsg_len as usize;
             let payload_bytes = msg_bytes - CMSG_LEN(0) as usize;
             let item = match ((*self.next_message).cmsg_level, (*self.next_message).cmsg_type) {
@@ -440,12 +564,18 @@ impl<'a> Iterator for Ancillary<'a> {
         None
     }
 }
-impl<'a> Drop for Ancillary<'a> {
-    fn drop(&mut self) {
+
+impl<'a> Drop for Ancillary<'a> 
+{
+    fn drop(&mut self) 
+    {
         // close all remaining file descriptors
-        for ancillary in self {
-            if let AncillaryItem::Fds(fds) = ancillary {
-                for fd in &fds {
+        for ancillary in self 
+        {
+            if let AncillaryItem::Fds(fds) = ancillary 
+            {
+                for fd in &fds 
+                {
                     unsafe { close(fd) };
                 }
             }
@@ -459,108 +589,156 @@ impl<'a> Ancillary<'a> {
     /// that was sent, the bytes that couldn't be stored are discarded.
     ///
     /// This function is not meaningful for streams.
-    pub fn message_truncated(&self) -> bool {
+    pub fn message_truncated(&self) -> bool 
+    {
         self.msg.msg_flags & MSG_TRUNC != 0
     }
+
     /// Returns `true` if ancillary messages were dropped due to a too short ancillary buffer.
     #[allow(unused)] // type is not yet exposed
-    pub fn ancillary_truncated(&self) -> bool {
+    pub fn ancillary_truncated(&self) -> bool 
+    {
         self.msg.msg_flags & MSG_CTRUNC != 0
     }
 }
 
 /// A safe (but incomplete) wrapper around `recvmsg()`.
-pub fn recv_ancillary<'ancillary_buf>(
-    socket: RawFd,  from: Option<&mut UnixSocketAddr>,  mut flags: c_int,
-    bufs: &mut[IoSliceMut],  ancillary_buf: &'ancillary_buf mut[u8],
-) -> Result<(usize, Ancillary<'ancillary_buf>), io::Error> {
-    unsafe {
+pub 
+fn recv_ancillary<'ancillary_buf, FD: AsFd>(
+    socket: FD,  
+    from: Option<&mut UnixSocketAddr>,  
+    mut flags: c_int,
+    bufs: &mut[IoSliceMut],  
+    ancillary_buf: &'ancillary_buf mut[u8],
+) -> Result<(usize, Ancillary<'ancillary_buf>), io::Error> 
+{
+    unsafe 
+    {
         let mut msg: msghdr = mem::zeroed();
         msg.msg_name = ptr::null_mut();
         msg.msg_namelen = 0;
         msg.msg_iov = bufs.as_mut_ptr() as *mut iovec;
-        msg.msg_iovlen = match bufs.len().try_into() {
-            Ok(len) => len,
-            Err(_) => {
-                return Err(io::Error::new(ErrorKind::InvalidInput, "too many content buffers"));
-            }
-        };
+        msg.msg_iovlen = 
+            bufs.len().try_into()
+                .map_err(|_|
+                    io::Error::new(ErrorKind::InvalidInput, "too many content buffers")
+                )?;
+
         msg.msg_flags = 0;
         msg.msg_control = ptr::null_mut();
         msg.msg_controllen = 0;
 
-        if ancillary_buf.len() > 0 {
-            #[cfg(any(target_os="illumos", target_os="solaris"))] {
+        if ancillary_buf.len() > 0 
+        {
+            #[cfg(any(target_os="illumos", target_os="solaris"))] 
+            {
                 return Err(io::Error::new(
                     ErrorKind::Other,
                     "ancillary message support is not implemented yet on Illumos or Solaris, sorry"
                 ))
             }
-            if ancillary_buf.as_ptr() as usize % mem::align_of::<cmsghdr>() != 0 {
+
+            if ancillary_buf.as_ptr() as usize % mem::align_of::<cmsghdr>() != 0 
+            {
                 let msg = "ancillary buffer is not properly aligned";
                 return Err(io::Error::new(ErrorKind::InvalidInput, msg));
             }
-            if ancillary_buf.len() > ControlLen::max_value() as usize {
+
+            if ancillary_buf.len() > ControlLen::max_value() as usize 
+            {
                 let msg = "ancillary buffer is too big";
                 return Err(io::Error::new(ErrorKind::InvalidInput, msg));
             }
+
             msg.msg_control = ancillary_buf.as_mut_ptr() as *mut c_void;
             msg.msg_controllen = ancillary_buf.len() as ControlLen;
         }
+
         flags |= MSG_NOSIGNAL;
-        #[cfg(not(any(target_vendor="apple", target_os="illumos", target_os="solaris", target_os = "haiku")))] {
+        #[cfg(not(any(target_vendor="apple", target_os="illumos", target_os="solaris", target_os = "haiku")))] 
+        {
             flags |= MSG_CMSG_CLOEXEC;
         }
 
-        let received = match from {
-            Some(addrbuf) => {
-                let (received, addr) = UnixSocketAddr::new_from_ffi(|addr, len| {
-                    msg.msg_name = addr as *mut sockaddr as *mut c_void;
-                    msg.msg_namelen = *len;
-                    let received = cvt_r!(recvmsg(socket, &mut msg, flags))? as usize;
-                    *len = msg.msg_namelen;
-                    Ok(received)
-                })?;
-                *addrbuf = addr;
-                received
-            }
-            None => cvt_r!(recvmsg(socket, &mut msg, flags))? as usize
-        };
+        let received = 
+            match from 
+            {
+                Some(addrbuf) => 
+                {
+                    let (received, addr) = 
+                        UnixSocketAddr::new_from_ffi(
+                            |addr, len| 
+                            {
+                                msg.msg_name = addr as *mut sockaddr as *mut c_void;
+                                msg.msg_namelen = *len;
+                                let received = cvt_r!(recvmsg(socket.as_fd().as_raw_fd(), &mut msg, flags))? as usize;
+                                *len = msg.msg_namelen;
+                                Ok(received)
+                            }
+                        )?;
 
-        let ancillary_iterator = Ancillary {
-            msg,
-            _ancillary_buf: PhantomData,
-            #[cfg(not(any(target_os="illumos", target_os="solaris")))]
-            next_message: CMSG_FIRSTHDR(&msg),
-        };
-        Ok((received, ancillary_iterator))
+                    *addrbuf = addr;
+                    received
+                }
+                None => 
+                    cvt_r!(recvmsg(socket.as_fd().as_raw_fd(), &mut msg, flags))? as usize
+            };
+
+        let ancillary_iterator = 
+            Ancillary 
+            {
+                msg,
+                _ancillary_buf: PhantomData,
+                #[cfg(not(any(target_os="illumos", target_os="solaris")))]
+                next_message: CMSG_FIRSTHDR(&msg),
+            };
+
+        return Ok((received, ancillary_iterator));
     }
 }
 
-pub fn recv_fds(
-        fd: RawFd,  from: Option<&mut UnixSocketAddr>,
-        bufs: &mut[IoSliceMut],  fd_buf: &mut[RawFd]
-) -> Result<(usize, bool, usize), io::Error> {
-    let mut ancillary_buf = AncillaryBuf::with_fd_capacity(fd_buf.len());
-    let (num_bytes, mut ancillary) = recv_ancillary(fd, from, 0, bufs, &mut ancillary_buf)?;
-    let mut num_fds = 0;
-    for message in &mut ancillary {
-        if let AncillaryItem::Fds(fds) = message {
+pub 
+fn recv_fds<FD: AsFd>(
+    fd: FD,  
+    from: Option<&mut UnixSocketAddr>,
+    bufs: &mut[IoSliceMut],  
+    mut fd_buf: Option<&mut Vec<OwnedFd>>
+) -> Result<(usize, bool, usize), io::Error> 
+{
+    let mut ancillary_buf = 
+        AncillaryBuf::with_fd_capacity(fd_buf.as_ref().map_or(0, |f| f.capacity()));
+
+    let (num_bytes, mut ancillary) = 
+        recv_ancillary(fd, from, 0, bufs, &mut ancillary_buf)?;
+
+    for message in &mut ancillary 
+    {
+        if let AncillaryItem::Fds(fds) = message 
+        {
             // Due to alignment of cmsg_len in glibc the minimum payload
             // capacity is on Linux (and probably Android) 8 bytes,
             // which means we might receive two file descriptors even though
             // we only want one.
-            let can_keep = fds.len().min(fd_buf.len()-num_fds);
+            let (cap, len) = 
+                fd_buf
+                    .as_ref()
+                    .map_or((0, 0), |f| (f.capacity(), f.len()));
+
+            let can_keep = fds.len().min(cap - len);
             let mut fd_iter = (&fds).iter();
-            for i in 0..can_keep {
-                fd_buf[num_fds + i] = fd_iter.next().unwrap();
+
+            for _ in 0..can_keep 
+            {
+                fd_buf.as_mut().unwrap().push( unsafe { OwnedFd::from_raw_fd( fd_iter.next().unwrap() ) } );
             }
-            num_fds += can_keep;
+
             // read the rest of fds
-            for unwanted in fd_iter {
+            for unwanted in fd_iter 
+            {
                 unsafe { close(unwanted) };
             }
         }
     }
-    Ok((num_bytes, ancillary.message_truncated(), num_fds))
+    return 
+        Ok((num_bytes, ancillary.message_truncated(), fd_buf.as_ref().map_or(0, |f| f.len())));
 }

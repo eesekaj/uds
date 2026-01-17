@@ -4,9 +4,9 @@ use std::os::unix::net::{UnixListener, UnixStream, UnixDatagram};
 use std::io::{self, ErrorKind::*};
 use std::fs::remove_file;
 
-extern crate uds;
-use uds::{ConnCredentials, UnixStreamExt, UnixDatagramExt};
-use uds::{UnixSeqpacketListener, UnixSeqpacketConn};
+extern crate uds_fork;
+use uds_fork::{ConnCredentials, UnixStreamExt, UnixDatagramExt};
+use uds_fork::{UnixSeqpacketListener, UnixSeqpacketConn};
 
 extern crate libc;
 use libc::{getpid, geteuid, getegid, getgid, getgroups};
@@ -86,7 +86,7 @@ fn assert_credentials_matches_current_process(creds: &ConnCredentials,  socket_t
 
 #[test]
 fn peer_credentials_of_stream_conn() {
-    let path = "stream_credentials.socket";
+    let path = "/tmp/stream_credentials.socket";
     let _ = remove_file(path);
     let listener = UnixListener::bind(path).expect("create socket file");
     let client = UnixStream::connect(path).expect("connect");
@@ -123,7 +123,7 @@ fn peer_credentials_of_stream_pair() {
     test
 )]
 fn peer_credentials_of_seqpacket_conn() {
-    let path = "seqpacket_credentials.socket";
+    let path = "/tmp/seqpacket_credentials.socket";
     let _ = remove_file(path);
     let listener = UnixSeqpacketListener::bind(path).expect("create socket file");
     let client = UnixSeqpacketConn::connect(path).expect("connect");
@@ -174,11 +174,13 @@ fn pair_credentials_of_datagram_socketpair() {
 }
 
 #[test]
-fn no_peer_credentials_of_unconnected_datagram_socket() {
-    let _ = remove_file("datagram_credentials.socket");
-    let socket = UnixDatagram::bind("datagram_credentials.socket")
+fn no_peer_credentials_of_unconnected_datagram_socket() 
+{
+    let p1 = "/tmp/datagram_credentials.socket";
+    let _ = remove_file(p1);
+    let socket = UnixDatagram::bind(p1)
         .expect("create unix datagram socket");
-    remove_file("datagram_credentials.socket").unwrap();
+    remove_file(p1).unwrap();
     let err = socket.initial_pair_credentials()
         .expect_err("get credentials of unconnected datagram socket");
     assert!(
@@ -189,9 +191,10 @@ fn no_peer_credentials_of_unconnected_datagram_socket() {
 }
 
 #[test]
-fn no_peer_credentials_of_regularly_connected_datagram_socket() {
-    let a_pathname = "datagram_credentials_a.socket";
-    let b_pathname = "datagram_credentials_b.socket";
+fn no_peer_credentials_of_regularly_connected_datagram_socket() 
+{
+    let a_pathname = "/tmp/datagram_credentials_a.socket";
+    let b_pathname = "/tmp/datagram_credentials_b.socket";
     let _ = remove_file(a_pathname);
     let _ = remove_file(b_pathname);
     let a = UnixDatagram::bind(a_pathname).expect("create unix datagram socket");
@@ -221,14 +224,17 @@ fn no_peer_credentials_of_regularly_connected_datagram_socket() {
 
 
 #[test]
-fn peer_selinux_context() {
+fn peer_selinux_context() 
+{
     let (a, _b) = UnixStream::pair().expect("create unix stream socket pair");
     let mut buf = [0u8; 1024];
-    match a.initial_peer_selinux_context(&mut buf) {
-        Ok(len) => {
+    match a.initial_peer_selinux_context(&mut buf) 
+    {
+        Ok(len) => 
+        {
             assert!(len <= buf.len(), "length is within bounds");
             assert_ne!(len, 0, "context is not an empty string");
-            assert!(buf[..len].iter().all(|&b| b.is_ascii() && !b.is_ascii_control() ));
+            assert!(buf[..len-1].iter().all(|&b| b.is_ascii() == true && b.is_ascii_control() == false ));
             assert_eq!(
                 &buf[len..],
                 &vec![b'\0'; buf.len()-len][..],
@@ -238,7 +244,8 @@ fn peer_selinux_context() {
                 panic!("unexpectedly succeeded on non-Linux OS");
             }
         }
-        Err(_) => {
+        Err(_) => 
+        {
             assert_eq!(&buf[..], &[0u8; 1024][..], "buffer is untouched on error");
             // fails on Linux on Cirrus, probably as a result of running inside a docker container
         }

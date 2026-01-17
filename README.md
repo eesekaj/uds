@@ -1,8 +1,14 @@
 # uds
 
-A unix domain sockets Rust library that supports abstract addresses, fd-passing, SOCK_SEQPACKET sockets and more.
+<img src="https://cdn.4neko.org/win_ev_log.webp" width="150"/>
 
-[![crates.io page](https://img.shields.io/crates/v/uds.svg)](https://crates.io/crates/uds) ![License: Apache v2 / MIT](https://img.shields.io/crates/l/uds.svg) [![Documentation](https://docs.rs/uds/badge.svg)](https://docs.rs/uds/) [![cirrus-ci build status](https://api.cirrus-ci.com/github/tormol/uds.svg)](https://cirrus-ci.com/github/tormol/uds) [![sourcehut build status](https://builds.sr.ht/~torbmol/uds.svg)](https://builds.sr.ht/~sircmpwn/builds.sr.ht?)
+> [!IMPORTANT]  
+> I am not an original author. A (https://github.com/tormol/uds)[GitHub] (https://crates.io/crates/uds)[Crates] are links to original crate.
+
+> [!IMPORTANT]  
+> Since author is not responding on issues at his github page, I decided to fork the crate.
+
+A unix domain sockets Rust library that supports abstract addresses, fd-passing, SOCK_SEQPACKET sockets and more.
 
 When possible, features are implemented via extension traits for [`std::os::unix::net`](https://doc.rust-lang.org/std/os/unix/net/index.html) types (and optionally [mio](https://crates.io/crates/mio)'s uds types) instead of exposing new structs.
 The only new socket structs this crate exposes are those for seqpacket sockets.
@@ -14,24 +20,29 @@ Ancillary credentials and timestamps are not yet supported.
 (only runs sucessfully on Linux)
 
 ```rust
-extern crate uds;
+extern crate uds_fork;
 
-let addr = uds::UnixSocketAddr::from_abstract(b"not a file!")
+use std::os::{unix::net::UnixDatagram, fd::OwnedFd};
+
+let addr = uds_fork::UnixSocketAddr::from_abstract(b"not a file!")
     .expect("create abstract socket address");
-let listener = uds::UnixSeqpacketListener::bind_unix_addr(&addr)
+let listener = uds_fork::UnixSeqpacketListener::bind_unix_addr(&addr)
     .expect("create seqpacket listener");
 
-let client = uds::UnixSeqpacketConn::connect_unix_addr(&addr)
+let client = uds_fork::UnixSeqpacketConn::connect_unix_addr(&addr)
     .expect("connect to listener");
-client.send_fds(b"Here I come", &[0, 1, 2])
+let (a, b) = UnixDatagram::pair().expect("create datagram socket pair");
+let (aa, _bb) = UnixDatagram::pair().expect("create datagram socket pair");
+
+client.send_fds(b"Here I come", vec![OwnedFd::from(a), OwnedFd::from(b), OwnedFd::from(aa)])
     .expect("send stdin, stdout and stderr");
 
 let (server_side, _) = listener.accept_unix_addr()
     .expect("accept connection");
-let creds: uds::ConnCredentials = server_side.initial_peer_credentials()
+let creds: uds_fork::ConnCredentials = server_side.initial_peer_credentials()
     .expect("get peer credentials");
 if creds.euid() == 0 {
-    let mut fd_buf = [-1; 3];
+    let mut fd_buf = Vec::with_capacity(3);
     let (_, _, fds) = server_side.recv_fds(&mut[0u8; 1], &mut fd_buf
         ).expect("receive with fd capacity");
     if fds == 3 {
@@ -57,9 +68,7 @@ Also, some OSes might return the original file descriptor without cloning it if 
 | **Seqpacket** | Yes | N/A | Yes | Yes | Yes | Yes | N/A |
 | **fd-passing** | Yes | Yes | Yes | Yes | Yes | Yes | No |
 | **abstract addresses** | Yes | N/A | N/A | N/A | N/A | N/A | N/A |
-| **mio 0.8** | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| **tokio 1.0** | Yes | Yes | Yes | Yes | Yes | Yes | No |
-| **Tested?** | Locally + CI | CI | CI | CI | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> |
+| **Tested?** | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> |
 
 <sup>\*</sup>: Not tested since v0.2.6. (but (cross)checked on CI.)
 
@@ -69,28 +78,6 @@ Also, some OSes might return the original file descriptor without cloning it if 
 * Windows 10: While it added some unix socket features, Windows support is not a priority. (PRs are welcome though).
 * Solaris: Treated identically as Illumos. mio 0.8 doesn't support it.
 
-## mio integration
-
-The `mio_08` feature makes the seqpacket types usable with [mio](https://github.com/tokio-rs/mio) version 0.8 (by implementing its `Source` trait for them),
-and implements this crates extension traits for the unix socket types in [`mio::net`](https://docs.rs/mio/latest/mio/net/index.html).
-
-To enable it, add this to Cargo.toml:
-
-```toml
-[dependencies]
-uds = {version="0.4.0", features=["mio_08"]}
-```
-
-## tokio integration
-
-The `tokio` feature adds [`async`-based seqpacket types](https://docs.rs/uds/latest/uds/tokio/index.html) for use with [tokio](https://github.com/tokio-rs/tokio) version 1.\*:
-
-To enable it, add this to Cargo.toml:
-
-```toml
-[dependencies]
-uds = {version="0.4.2", features=["tokio"]}
-```
 
 ## Minimum Rust version
 
@@ -103,6 +90,8 @@ This crate calls many C functions, which are all `unsafe` (even ones as simple a
 The public interface is safe (except for `FromRawFd`), so if you find something unsound (even internal functions that aren't marked `unsafe`) please open an issue.
 
 ## License
+
+<img src="https://cdn.4neko.org/mit_apache.webp" width="250"/>
 
 Licensed under either of
 

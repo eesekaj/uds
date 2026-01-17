@@ -3,7 +3,8 @@
     clippy::needless_borrowed_reference,
 )]
 
-use std::os::unix::io::RawFd;
+#[cfg(any(target_os="linux", target_os="android"))]
+use std::os::fd::AsFd;
 use std::{io, fmt};
 use std::num::NonZeroU32;
 use std::io::ErrorKind::*;
@@ -45,23 +46,29 @@ use libc::{ucred_geteuid, ucred_getegid, ucred_getpid, ucred_getgroups, uid_t, g
 /// operating systems this struct is ignored.
 #[derive(Clone,Copy, PartialEq,Eq, Debug)]
 #[allow(unused)] // not used yet
-pub enum SendCredentials {
+pub enum SendCredentials 
+{
     Effective,
     Real,
     Custom{ pid: u32, uid: u32, gid: u32 }
 }
+
 #[cfg(any(target_os="linux", target_os="android"))]
-impl SendCredentials {
-    pub fn into_raw(self) -> ucred {
+impl SendCredentials 
+{
+    pub fn into_raw(self) -> ucred 
+    {
         let mut ucred: ucred = unsafe { mem::zeroed() };
         let (pid, uid, gid) = match self {
             SendCredentials::Effective => unsafe { (getpid(), geteuid(), getegid()) },
             SendCredentials::Real => unsafe { (getpid(), getuid(), getgid()) },
             SendCredentials::Custom{pid, uid, gid} => (pid as pid_t, uid as uid_t, gid as gid_t),
         };
+
         ucred.pid = pid;
         ucred.uid = uid;
         ucred.gid = gid;
+
         return ucred;
     }
 }
@@ -69,15 +76,26 @@ impl SendCredentials {
 
 
 #[cfg(any(target_os="linux", target_os="android"))]
-pub fn selinux_context(fd: RawFd,  buffer: &mut[u8]) -> Result<usize, io::Error> {
-    unsafe {
-        let ptr = buffer.as_mut_ptr() as *mut c_void;
-        let mut capacity = buffer.len().min(socklen_t::max_value() as usize) as socklen_t;
-        match getsockopt(fd, SOL_SOCKET, SO_PEERSEC, ptr, &mut capacity) {
+pub 
+fn selinux_context<FD: AsFd>(fd: FD, buffer: &mut[u8]) -> Result<usize, io::Error> 
+{
+    let ptr = buffer.as_mut_ptr() as *mut c_void;
+    let mut capacity = buffer.len().min(socklen_t::max_value() as usize) as socklen_t;
+
+    let res = 
+        unsafe 
+        {
+            use std::os::fd::AsRawFd;
+
+            getsockopt(fd.as_fd().as_raw_fd(), SOL_SOCKET, SO_PEERSEC, ptr, &mut capacity)    
+        };
+    
+    return 
+        match res 
+        {
             -1 => Err(io::Error::last_os_error()),
             _ => Ok(capacity as usize),
-        }
-    }
+        };
 }
 
 #[cfg(not(any(target_os="linux", target_os="android")))]
@@ -194,19 +212,36 @@ impl fmt::Debug for ConnCredentials {
 
 
 #[cfg(any(target_os="linux", target_os="android"))]
-pub fn peer_credentials(conn: RawFd) -> Result<ConnCredentials, io::Error> {
+pub 
+fn peer_credentials<FD: AsFd>(conn: FD) -> Result<ConnCredentials, io::Error> 
+{
+    use std::os::fd::AsRawFd;
+
     let mut ucred: ucred = unsafe { mem::zeroed() };
-    unsafe {
-        let ptr = &mut ucred as *mut ucred as *mut c_void;
-        let mut size = mem::size_of::<ucred>() as socklen_t;
-        if getsockopt(conn, SOL_SOCKET, SO_PEERCRED, ptr, &mut size) == -1 {
+
+    let ptr = &mut ucred as *mut ucred as *mut c_void;
+    let mut size = mem::size_of::<ucred>() as socklen_t;
+
+    let res = 
+        unsafe
+        { 
+            getsockopt(conn.as_fd().as_raw_fd(), SOL_SOCKET, SO_PEERCRED, ptr, &mut size)
+        };
+
+    return 
+        if res == -1 
+        {
             Err(io::Error::last_os_error())
-        } else if let Some(pid) = NonZeroU32::new(ucred.pid as u32) {
+        } 
+        else if let Some(pid) = NonZeroU32::new(ucred.pid as u32) 
+        {
             Ok(ConnCredentials::LinuxLike{ pid, euid: ucred.uid as u32, egid: ucred.gid as u32 })
-        } else {
+        } 
+        else 
+        {
             Err(io::Error::new(NotConnected, "socket is not a connection"))
-        }
-    }
+        };
+    
 }
 
 #[cfg(any(target_os="freebsd", target_os="dragonfly", target_vendor="apple"))]
@@ -376,7 +411,8 @@ pub type RawReceivedCredentials = libc::ucred;
 ///   by the OS automatically when the socket option is set.
 /// * OpenBSD doesn't appear to support receiving credentials.
 #[derive(Clone,Copy, PartialEq,Eq,Hash, Debug)]
-pub struct ReceivedCredentials {
+pub struct ReceivedCredentials 
+{
     #[cfg(any(target_os="linux", target_os="android", target_os="dragonfly"))]
     pid: u32,
     #[cfg(any(target_os="linux", target_os="android"))]
@@ -412,10 +448,13 @@ pub struct ReceivedCredentials {
 }
 
 #[allow(unused)] // TODO
-impl ReceivedCredentials {
+impl ReceivedCredentials 
+{
     #[cfg(any(target_os="linux", target_os="android"))]
-    pub(crate) fn from_raw(creds: libc::ucred) -> Self {
-        ReceivedCredentials {
+    pub(crate) fn from_raw(creds: libc::ucred) -> Self 
+    {
+        ReceivedCredentials 
+        {
             pid: creds.pid as u32,
             uid: creds.uid as u32,
             gid: creds.gid as u32,
@@ -425,7 +464,9 @@ impl ReceivedCredentials {
     /// The pid of the peer.
     ///
     /// This information is only available on Linux, Android and DragonFly BSD.
-    pub fn pid(&self) -> Option<u32> {
+    pub 
+    fn pid(&self) -> Option<u32> 
+    {
         #[cfg(any(target_os="linux", target_os="android", target_os="dragonfly"))] {
             Some(self.pid)
         }
@@ -433,7 +474,10 @@ impl ReceivedCredentials {
             None
         }
     }
-    pub fn effective_or_sent_uid(&self) -> u32 {
+
+    pub 
+    fn effective_or_sent_uid(&self) -> u32 
+    {
         #[cfg(any(target_os="linux", target_os="android"))] {
             self.uid
         }
@@ -451,21 +495,27 @@ impl ReceivedCredentials {
             unreachable!("struct cannot be created on unsupported OSes")
         }
     }
-    pub fn real_or_sent_uid(&self) -> u32 {
-        #[cfg(any(target_os="linux", target_os="android"))] {
+
+    pub 
+    fn real_or_sent_uid(&self) -> u32 
+    {
+        #[cfg(any(target_os="linux", target_os="android"))] 
+        {
             self.uid
         }
         #[cfg(any(
             target_os="freebsd", target_os="netbsd", target_os="dragonfly",
             target_os="illumos", target_os="solaris", target_os="macos",
-        ))] {
+        ))] 
+        {
             self.real_uid
         }
         #[cfg(not(any(
             target_os="linux", target_os="android",
             target_os="freebsd", target_os="netbsd", target_os="dragonfly",
             target_os="illumos", target_os="solaris", target_os="macos",
-        )))] {
+        )))] 
+        {
             unreachable!("struct cannot be created on unsupported OSes")
         }
     }
@@ -487,21 +537,26 @@ impl ReceivedCredentials {
             None
         }
     }
-    pub fn real_or_sent_gid(&self) -> u32 {
-        #[cfg(any(target_os="linux", target_os="android"))] {
+    
+    pub fn real_or_sent_gid(&self) -> u32 
+    {
+        #[cfg(any(target_os="linux", target_os="android"))] 
+        {
             self.gid
         }
         #[cfg(any(
             target_os="freebsd", target_os="netbsd", target_os="dragonfly",
             target_os="illumos", target_os="solaris", target_os="macos",
-        ))] {
+        ))] 
+        {
             self.real_gid
         }
         #[cfg(not(any(
             target_os="linux", target_os="android",
             target_os="freebsd", target_os="netbsd", target_os="dragonfly",
             target_os="illumos", target_os="solaris", target_os="macos",
-        )))] {
+        )))] 
+        {
             unreachable!("struct cannot be created on unsupported OSes")
         }
     }
@@ -509,17 +564,21 @@ impl ReceivedCredentials {
     ///
     /// This information is only available on macOS, the BSDs and and Illumos.
     /// On other operating systems an empty slice is returned.
-    pub fn groups(&self) -> &[u32] {
+    pub 
+    fn groups(&self) -> &[u32] 
+    {
         #[cfg(any(
             target_os="freebsd", target_os="netbsd", target_os="dragonfly",
             target_os="illumos", target_os="solaris", target_os="macos",
-        ))] {
+        ))] 
+        {
             &self.groups[..]
         }
         #[cfg(not(any(
             target_os="freebsd", target_os="netbsd", target_os="dragonfly",
             target_os="illumos", target_os="solaris", target_os="macos",
-        )))] {
+        )))] 
+        {
             &[]
         }
     }

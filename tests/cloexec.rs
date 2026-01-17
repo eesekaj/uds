@@ -1,4 +1,4 @@
-extern crate uds;
+extern crate uds_fork;
 
 use std::ffi::OsStr;
 use std::fs::remove_file;
@@ -6,7 +6,7 @@ use std::os::unix::io::{RawFd, AsRawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::{Command, Stdio};
 
-use uds::{UnixSocketAddr, UnixListenerExt, UnixStreamExt};
+use uds_fork::{UnixSocketAddr, UnixListenerExt, UnixStreamExt};
 
 fn is_cloexec(fd: RawFd) -> bool {
     let mut exe = std::env::current_exe().expect("get directory of tests binary");
@@ -35,7 +35,7 @@ fn is_cloexec(fd: RawFd) -> bool {
 
 #[test]
 fn stream_listener() {
-    let path = "stream_listener_cloexec";
+    let path = "/tmp/stream_listener_cloexec";
     let addr = UnixSocketAddr::from_path(path).unwrap();
     let _ = remove_file(path);
     let listener = UnixListener::bind_unix_addr(&addr).expect("bind()");
@@ -45,7 +45,7 @@ fn stream_listener() {
 
 #[test]
 fn stream_accepted() {
-    let path = "stream_accepted_cloexec";
+    let path = "/tmp/stream_accepted_cloexec";
     let _ = remove_file(path);
     let listener = UnixListener::bind(path).expect("bind()");
     let result = UnixStream::connect(path);
@@ -57,7 +57,7 @@ fn stream_accepted() {
 
 #[test]
 fn stream_connected() {
-    let path = "stream_connected_cloexec";
+    let path = "/tmp/stream_connected_cloexec";
     let addr = UnixSocketAddr::from_path(path).unwrap();
     let _ = remove_file(path);
     let _listener = UnixListener::bind(path).unwrap();
@@ -69,8 +69,8 @@ fn stream_connected() {
 
 #[test]
 fn stream_connected_from() {
-    let listen_path = "stream_connected_from_cloexec";
-    let connect_from_path = "stream_connected_from_cloexec_src";
+    let listen_path = "/tmp/stream_connected_from_cloexec";
+    let connect_from_path = "/tmp/stream_connected_from_cloexec_src";
     let listen_addr = UnixSocketAddr::from_path(listen_path).unwrap();
     let connect_from_addr = UnixSocketAddr::from_path(connect_from_path).unwrap();
 
@@ -88,12 +88,21 @@ fn stream_connected_from() {
 #[cfg(not(any(target_os="illumos", target_os="solaris")))]
 #[test]
 fn received() {
+    use std::os::fd::OwnedFd;
+
     let (foo, bar) = UnixStream::pair().expect("create unix stream pair");
-    foo.send_fds(b"Hello Bar, it's Foo, your peer", &[foo.as_raw_fd()]).expect("send fd");
-    let mut fd_buf = [-1; 10];
+
+    let c_foo = foo.try_clone().unwrap();
+
+    c_foo.send_fds(b"Hello Bar, it's Foo, your peer", vec![OwnedFd::from(foo)]).expect("send fd");
+    
+    let mut fd_buf = Vec::with_capacity(10);
+    
     let (_, num_fds) = bar.recv_fds(&mut[b'\0'; 8], &mut fd_buf).expect("receive ancillary");
+    
     assert_eq!(num_fds, 1);
-    assert!(is_cloexec(fd_buf[0]));
+
+    assert!(is_cloexec(fd_buf[0].as_raw_fd()));
 }
 
 #[test] /// tests that cloexec_tester detects a fd without cloexec

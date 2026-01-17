@@ -34,14 +34,11 @@
 )]
 
 extern crate libc;
-#[cfg(feature="mio_08")]
-extern crate mio_08;
-#[cfg(feature="tokio")]
-extern crate tokio as tokio_crate;
 
 /// Get errno as io::Error on -1.
 macro_rules! cvt {($syscall:expr) => {
-    match $syscall {
+    match $syscall 
+    {
         -1 => Err(io::Error::last_os_error()),
         ok => Ok(ok),
     }
@@ -49,13 +46,18 @@ macro_rules! cvt {($syscall:expr) => {
 
 /// Get errno as io::Error on -1 and retry on EINTR.
 macro_rules! cvt_r {($syscall:expr) => {
-    loop {
+    loop 
+    {
         let result = $syscall;
-        if result != -1 {
+        if result != -1 
+        {
             break Ok(result);
         }
+
         let err = io::Error::last_os_error();
-        if err.kind() != ErrorKind::Interrupted {
+
+        if err.kind() != std::io::ErrorKind::Interrupted 
+        {
             break Err(err);
         }
     }
@@ -67,8 +69,6 @@ mod helpers;
 mod ancillary;
 mod traits;
 mod seqpacket;
-#[cfg(feature="tokio")]
-pub mod tokio;
 
 pub use addr::{UnixSocketAddr, UnixSocketAddrRef, AddrName};
 pub use traits::{UnixListenerExt, UnixStreamExt, UnixDatagramExt};

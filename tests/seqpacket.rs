@@ -1,17 +1,19 @@
 #![cfg(not(target_vendor="apple"))]
 
-use std::io::ErrorKind::*;
-use std::io::{IoSlice, IoSliceMut};
-use std::net::Shutdown;
-use std::os::unix::io::AsRawFd;
-use std::time::{Duration, Instant};
+use std::
+{
+    os::{fd::OwnedFd}, 
+    time::{Duration, Instant}, 
+    io::{ErrorKind::*, IoSlice, IoSliceMut}, 
+    net::Shutdown
+};
 
-use uds::nonblocking::UnixSeqpacketConn as NonblockingUnixSeqpacketConn;
-use uds::{UnixSeqpacketConn, UnixSeqpacketListener};
+use uds_fork::nonblocking::UnixSeqpacketConn as NonblockingUnixSeqpacketConn;
+use uds_fork::{UnixSeqpacketConn, UnixSeqpacketListener};
 
 #[test]
 fn seqpacket_is_supported() {
-    let path = "seqpacket exists.socket";
+    let path = "/tmp/seqpacket.exists.socket";
     let _ = std::fs::remove_file(path);
     let _listener = UnixSeqpacketListener::bind(path).unwrap();
     let _conn = UnixSeqpacketConn::connect(path).unwrap();
@@ -69,17 +71,20 @@ fn zero_length_vectored_sort_of_works() {
 #[test]
 fn no_sigpipe() {
     let (a, _) = UnixSeqpacketConn::pair().expect("create seqpacket socket pair");
+    let (aa, _) = UnixSeqpacketConn::pair().expect("create seqpacket socket pair");
+
     assert_eq!(a.send(b"Hello?").unwrap_err().kind(), BrokenPipe);
     assert_eq!(a.send_vectored(&[IoSlice::new(b"Anyone there?")]).unwrap_err().kind(), BrokenPipe);
     if cfg!(not(any(target_os="illumos", target_os="solaris"))) {
-        assert_eq!(a.send_fds(b"HELOOO??", &[a.as_raw_fd()]).unwrap_err().kind(), BrokenPipe);
+        assert_eq!(a.send_fds(b"HELOOO??", vec![OwnedFd::from(aa)]).unwrap_err().kind(), BrokenPipe);
     }
 
     let (a, _) = NonblockingUnixSeqpacketConn::pair().expect("create nonblocking seqpacket pair");
+    let (aa, _) = NonblockingUnixSeqpacketConn::pair().expect("create nonblocking seqpacket pair");
     assert_eq!(a.send(b"Hello?").unwrap_err().kind(), BrokenPipe);
     assert_eq!(a.send_vectored(&[IoSlice::new(b"Anyone there?")]).unwrap_err().kind(), BrokenPipe);
     if cfg!(not(any(target_os="illumos", target_os="solaris"))) {
-        assert_eq!(a.send_fds(b"HELOOO??", &[a.as_raw_fd()]).unwrap_err().kind(), BrokenPipe);
+        assert_eq!(a.send_fds(b"HELOOO??", vec![OwnedFd::from(aa)]).unwrap_err().kind(), BrokenPipe);
     }
 }
 
@@ -276,7 +281,7 @@ fn write_timeout() {
 
 #[test]
 fn accept_timeout() {
-    let addr = "accept_timeout.sock";
+    let addr = "/tmp/accept_timeout.sock";
     let timeout = Duration::new(0, 250_000_000);
     let _ = std::fs::remove_file(addr);
     let listener = UnixSeqpacketListener::bind(addr)
