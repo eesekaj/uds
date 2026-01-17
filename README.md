@@ -3,7 +3,7 @@
 <img src="https://cdn.4neko.org/win_ev_log.webp" width="150"/>
 
 > [!IMPORTANT]  
-> I am not an original author. A (https://github.com/tormol/uds)[GitHub] (https://crates.io/crates/uds)[Crates] are links to original crate.
+> I am not an original author. A [GitHub](https://github.com/tormol/uds) and [Crates](https://crates.io/crates/uds) are links to original crate.
 
 > [!IMPORTANT]  
 > Since author is not responding on issues at his github page, I decided to fork the crate.
@@ -14,6 +14,26 @@ When possible, features are implemented via extension traits for [`std::os::unix
 The only new socket structs this crate exposes are those for seqpacket sockets.
 
 Ancillary credentials and timestamps are not yet supported.
+
+## Changelog
+
+<details>
+  <summary>Changelog</summary>
+
+* Fixed compilation errors on FreeBSD.
+* ! FreeBSD 15 demonstrates strange behaviour with message trancation and empty messages which 
+is not compatiable Linux and FreeBSD 14.
+* send_ancillary() memory managment modified
+</details>
+
+<details>
+  <summary>Changelog Version 0.5.0 (2026-01-16)</summary>
+
+* A crate was forked due to stale status.
+* Moved to Rust 2024
+* Added OwnedFd and BorrowedFd to comply with Rust specifications.
+* Removed MIO and Tokio. Use AsyncFD and implement MIO for the type youself. (Maybe MIO will be readded later).
+</details>
 
 ## Example
 
@@ -74,6 +94,7 @@ Also, some OSes might return the original file descriptor without cloning it if 
 
 ### Other OSes
 
+* FreeBSD 15 (from version to version) behaves differently on msg truncation and sending empty messages.
 * Android: I haven't tested on it, but I assume there are no differences from regular Linux.
 * Windows 10: While it added some unix socket features, Windows support is not a priority. (PRs are welcome though).
 * Solaris: Treated identically as Illumos. mio 0.8 doesn't support it.
@@ -87,7 +108,7 @@ Older versions might work, but might break in a minor release.
 ## `unsafe` usage
 
 This crate calls many C functions, which are all `unsafe` (even ones as simple as `socket()`).
-The public interface is safe (except for `FromRawFd`), so if you find something unsound (even internal functions that aren't marked `unsafe`) please open an issue.
+The public interface complies with Rust's FD managment recomendations.
 
 ## License
 

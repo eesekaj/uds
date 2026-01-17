@@ -1,3 +1,10 @@
+Version 0.5.1 (2026-01-18)
+==========================
+* Fixed compilation errors on FreeBSD.
+* ! FreeBSD 15 demonstrates strange behaviour with message trancation and empty messages which 
+is not compatiable Linux and FreeBSD 14.
+* send_ancillary() memory managment modified
+
 Version 0.5.0 (2026-01-16)
 ==========================
 * A crate was forked due to stale status.

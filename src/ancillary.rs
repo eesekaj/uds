@@ -7,7 +7,7 @@
 )]
 
 use std::ops::{Deref, DerefMut};
-use std::borrow::{Borrow, BorrowMut};
+use std::borrow::{Borrow, BorrowMut, Cow};
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::io::RawFd;
 use std::io::{self, ErrorKind, IoSlice, IoSliceMut};
@@ -18,7 +18,7 @@ use std::marker::PhantomData;
 
 use libc::{c_int, c_uint, c_void};
 use libc::{msghdr, iovec, cmsghdr, sockaddr, sockaddr_un};
-use libc::{sendmsg, recvmsg, close};
+use libc::{sendmsg, recvmsg};
 //#[cfg(not(any(target_os="illumos", target_os="solaris")))]
 use libc::{MSG_TRUNC, MSG_CTRUNC};
 #[cfg(not(any(target_os="illumos", target_os="solaris")))]
@@ -128,29 +128,49 @@ fn send_ancillary<FD: AsFd>(
         }
 
         // stack buffer which should be big enough for most scenarios
-        #[repr(C)]
-        struct AncillaryFixedBuf(/*for alignment*/[cmsghdr; 0], [u8; 256]);
-        let mut ancillary_buf = AncillaryFixedBuf([], [0; 256]);
+        //#[repr(C)]
+        //struct AncillaryFixedBuf(/*for alignment*/[cmsghdr; 0], );
+        //const anc_cap = AncillaryBuf::MAX_STACK_CAPACITY / (mem::size_of::<cmsghdr>() + mem::size_of::<OwnedFd>());
+
+        let ancillary_buf: [u8; unsafe { CMSG_SPACE(60) as usize }] = 
+            [0_u8; unsafe { CMSG_SPACE(60) as usize}];
+        
+        //AncillaryFixedBuf([], [mem::zeroed(); AncillaryBuf::MAX_STACK_CAPACITY / mem::size_of::<cmsghdr>()]);
 
         msg.msg_controllen = needed_capacity as ControlLen;
 
+        let cap: Cow<'_, [u8]> = 
+            if needed_capacity as usize >= mem::size_of_val(&ancillary_buf)
+            {
+                /*let layout = 
+                        Layout::from_size_align(needed_capacity as usize, mem::align_of::<cmsghdr>())
+                            .unwrap();
+
+                let v = alloc::alloc(layout) as *mut u8;
+*/
+               // Cow::Owned( Vec::from_raw_parts(v, layout.size(), layout.size()) )
+               Cow::Owned(vec![0_u8; needed_capacity as usize])
+            }
+            else 
+            {
+               Cow::Borrowed(ancillary_buf.as_slice())    
+            };
+
         if needed_capacity != 0 
         {
-            if needed_capacity as usize <= mem::size_of::<AncillaryFixedBuf>() 
+            /*if needed_capacity as usize <= mem::size_of::<AncillaryFixedBuf>() 
             {
-                msg.msg_control = &mut ancillary_buf.1 as *mut [u8; 256] as *mut c_void;
+                msg.msg_control = 
+                    &mut ancillary_buf.1 as *mut [u8; AncillaryBuf::MAX_STACK_CAPACITY] as *mut c_void;
             } 
             else 
             {
-                let layout = 
-                    Layout::from_size_align(
-                        needed_capacity as usize,
-                        mem::align_of::<cmsghdr>()
-                    )
-                    .unwrap();
+                
 
                 msg.msg_control = alloc::alloc(layout) as *mut c_void;
-            }
+            }*/
+
+            msg.msg_control = cap.as_ptr() as *mut c_void;
 
             #[cfg(not(any(target_os="illumos", target_os="solaris")))] 
             {
@@ -198,13 +218,14 @@ fn send_ancillary<FD: AsFd>(
         let result = 
             cvt_r!(sendmsg(socket.as_fd().as_raw_fd(), &msg, flags | MSG_NOSIGNAL));
 
-        if needed_capacity as usize > mem::size_of::<AncillaryFixedBuf>() 
+        // this should be done automatically by dropping Cow
+        /*if needed_capacity as usize > mem::size_of::<AncillaryFixedBuf>() 
         {
             let layout = 
                 Layout::from_size_align(needed_capacity as usize, mem::align_of::<cmsghdr>()).unwrap();
             
             alloc::dealloc(msg.msg_control as *mut u8, layout);
-        }
+        }*/
 
         result.map(|sent| sent as usize )
     }
@@ -216,6 +237,7 @@ fn send_ancillary<FD: AsFd>(
 ///
 /// For reasonable ancillary capacities it uses a stack-based array.
 #[repr(C)]
+#[derive(Debug)]
 pub struct AncillaryBuf 
 {
     capacity: ControlLen,
@@ -491,6 +513,7 @@ impl AncillaryItem
 }
 
 /// An iterator over ancillary messages received with `recv_ancillary()`.
+#[derive(Debug)]
 pub struct Ancillary<'a>
 {
     // addr and bytes are not used here:

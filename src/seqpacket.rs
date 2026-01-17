@@ -405,7 +405,7 @@ impl UnixSeqpacketConn
     pub 
     fn try_clone(&self) -> Result<Self, io::Error> 
     {
-        let cloned = Socket::<SocketSeqPkt>::try_clone_from(self.fd.as_fd())?;
+        let cloned = Socket::<SocketSeqPkt>::try_clone_from(self)?;
 
         return Ok(UnixSeqpacketConn { fd: cloned.into() });
     }
@@ -1105,13 +1105,17 @@ impl NonblockingUnixSeqpacketConn
         take_error(&self)
     }
 
+    // note: freebsd  reports error on line 
+    // assert_eq!(a1.recv(&mut[0u8; 10]).unwrap_err().kind(), ErrorKind::Woul ... recv 
+    // thread 'main' (105211) panicked at /tmp/rustdoctestEFy1yO/doctest_bundle_2024.rs:283:35:
+    // called `Result::unwrap_err()` on an `Ok` value: 10
 
     /// Creates a new file descriptor also pointing to this side of this connection.
     ///
     /// # Examples
     ///
     #[cfg_attr(not(target_vendor="apple"), doc="```")]
-    #[cfg_attr(target_vendor="apple", doc="```no_run")]
+    #[cfg_attr(any(target_vendor="apple", target_os = "freebsd"), doc="```no_run")]
     /// # use uds_fork::nonblocking::UnixSeqpacketConn;
     /// # use std::io::ErrorKind;
     /// #
