@@ -28,16 +28,17 @@ fn truncated_packets_are_not_resumed() {
     a.send(b"hello").unwrap();
     let mut buf = [0; 3];
     assert_eq!(b.recv(&mut buf).unwrap(), 3);
-    assert_eq!(b.recv(&mut buf).unwrap_err().kind(), WouldBlock);
+    assert_eq!(b.recv(&mut buf).unwrap_err().kind(), WouldBlock); // freebsd error here
     assert_eq!(&buf[..3], b"hel");
 }
 
 #[cfg_attr(not(any(target_os="illumos", target_os="solaris")), test)]
 #[cfg_attr(any(target_os="illumos", target_os="solaris"), allow(unused))]
-fn zero_length_packet_sort_of_works() {
+fn zero_length_packet_sort_of_works() 
+{
     let (a, b) = NonblockingUnixSeqpacketConn::pair().unwrap();
     assert_eq!(a.send(&[]).expect("send zero-length packet"), 0);
-    assert_eq!(b.recv(&mut[0u8; 8]).expect("receive zero-length packet"), 0);
+    assert_eq!(b.recv(&mut[0u8; 8]).expect("receive zero-length packet"), 0); // freebsd error here
     a.send(&[]).unwrap();
     // Only checks length because FreeBSD thinks it gets truncated
     assert_eq!(b.recv(&mut[]).expect("receive zero-length packet with empty buffer"), 0);
@@ -59,7 +60,7 @@ fn zero_length_vectored_sort_of_works() {
 
     assert_eq!(a.send_vectored(&[]).unwrap(), 0);
     assert_eq!(a.send_vectored(&[IoSlice::new(&[])]).unwrap(), 0);
-    assert_eq!(b.recv(&mut buf).unwrap(), 0);
+    assert_eq!(b.recv(&mut buf).unwrap(), 0); // freebsd error here
     assert_eq!(b.recv(&mut buf).unwrap(), 0);
 
     a.send(b"ignore me").unwrap();
@@ -111,7 +112,7 @@ fn recv_vectored() {
         IoSliceMut::new(&mut[]),
         IoSliceMut::new(&mut array_2),
     ];
-    assert_eq!(b.recv_vectored(&mut buffers).unwrap(), (5, true));
+    assert_eq!(b.recv_vectored(&mut buffers).unwrap(), (5, true)); // freebsd error here l (5, false) (5, true)
     assert_eq!(&array_1[..1], b"t");
     assert_eq!(&array_2, b"runc");
 
@@ -156,7 +157,7 @@ fn send_vectored() {
     ];
     b.set_nonblocking(true).unwrap();
     assert_eq!(a.send_vectored(&slices).unwrap(), 9);
-    assert_eq!(b.recv(&mut[0u8; 2]).unwrap(), 2);
+    assert_eq!(b.recv(&mut[0u8; 2]).unwrap(), 2); // freebsd error here l: 1 , r: 2
     assert_eq!(b.recv(&mut buf).unwrap_err().kind(), WouldBlock);
 }
 
@@ -180,7 +181,7 @@ fn vectored() {
     assert_eq!(a.send_vectored(&slices).unwrap(), 13);
     let (mut array_1, mut array_2) = ([9; 9], [3; 3]);
     let mut buffers = [IoSliceMut::new(&mut array_1), IoSliceMut::new(&mut array_2)];
-    assert_eq!(b.recv_vectored(&mut buffers).unwrap(), (12, true));
+    assert_eq!(b.recv_vectored(&mut buffers).unwrap(), (12, true)); // freebsd error here
     assert_eq!(&array_1, b"reshuffle");
     assert_eq!(&array_2, b" me");
     let mut buffers = [IoSliceMut::new(&mut array_1)];

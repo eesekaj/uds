@@ -1,3 +1,9 @@
+#[cfg(any(
+                target_vendor="apple", target_os="freebsd",
+                target_os="netbsd",
+                target_os="illumos", target_os="solaris",
+            ))]
+use std::io::ErrorKind;
 use std::
 {
     io::{self, IoSlice, IoSliceMut}, 
@@ -717,19 +723,26 @@ impl UnixSeqpacketListener
     pub 
     fn set_timeout(&self,  timeout: Option<Duration>) -> Result<(), io::Error> 
     {
-        match set_timeout(&self, TimeoutDirection::READ, timeout) 
-        {
-            #[cfg(any(
+        let res = set_timeout(&self, TimeoutDirection::READ, timeout);
+
+        #[cfg(any(
                 target_vendor="apple", target_os="freebsd",
                 target_os="netbsd",
                 target_os="illumos", target_os="solaris",
             ))]
-            Ok(()) if timeout.is_some() => Err(io::Error::new(
-                ErrorKind::InvalidInput,
-                "listener timeouts are not supported on this OS"
-            )),
-            result => result
+        {
+            if res.is_ok() == true && timeout.is_some() == true
+            {
+                return Err(
+                    io::Error::new(
+                        ErrorKind::InvalidInput,
+                        "listener timeouts are not supported on this OS"
+                    )
+                );
+            }
         }
+
+        return res;
     }
 
     /// Returns the timeout for `accept()` on this socket.
@@ -1000,7 +1013,8 @@ impl NonblockingUnixSeqpacketConn
         return Ok(received as usize);
     }
     /// Sends a packet assembled from multiple byte slices.
-    pub fn send_vectored(&self,  slices: &[IoSlice]) -> Result<usize, io::Error> 
+    pub 
+    fn send_vectored(&self,  slices: &[IoSlice]) -> Result<usize, io::Error> 
     {
         // Can't use writev() because we need to pass flags,
         // and the flags accepted by pwritev2() aren't the one we need to pass.

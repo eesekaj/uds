@@ -42,34 +42,41 @@ pub use libc::MSG_NOSIGNAL;
 pub const MSG_NOSIGNAL: c_int = 0; // SO_NOSIGPIPE is set instead
 
 
-
 /// Enables / disables CLOEXEC, for when SOCK_CLOEXEC can't be used.
 #[cfg(not(target_os = "haiku"))]
-pub fn set_cloexec(fd: RawFd,  close_on_exec: bool) -> Result<(), io::Error> {
+pub(crate) 
+fn set_cloexec<FD: AsFd>(fd: FD, close_on_exec: bool) -> Result<(), io::Error> 
+{
     let op = if close_on_exec {FIOCLEX} else {FIONCLEX};
-    match cvt!(unsafe { ioctl(fd, op) }) {
-        Ok(_) => Ok(()),
-        #[cfg(any(target_os="illumos", target_os="solaris"))]
-        Err(ref e) if e.kind() == ErrorKind::InvalidInput => {
-            unsafe {
-                let prev = cvt!(fcntl(fd, F_GETFD))?;
-                let change_to = if close_on_exec {prev | FD_CLOEXEC} else {prev & !FD_CLOEXEC};
-                if change_to != prev {
-                    cvt!(fcntl(fd, F_SETFD, change_to))?;
-                }
-                Ok(())
+
+    let res = cvt!(unsafe { ioctl(fd.as_fd().as_raw_fd(), op) });
+
+    #[cfg(any(target_os="illumos", target_os="solaris"))]
+    if let Err(e) = res && e.kind() == ErrorKind::InvalidInput
+    {
+        unsafe 
+        {
+            let prev = cvt!(fcntl(fd.as_fd().as_raw_fd(), F_GETFD))?;
+            let change_to = if close_on_exec {prev | FD_CLOEXEC} else {prev & !FD_CLOEXEC};
+            if change_to != prev 
+            {
+                cvt!(fcntl(fd.as_fd().as_raw_fd(), F_SETFD, change_to))?;
             }
-        },
-        Err(e) => Err(e),
+            
+            return Ok(());
+        }
     }
+
+    return res.map(|_| ());
 }
 
 #[cfg(target_os = "haiku")]
-pub 
-fn set_cloexec(_: RawFd,  _: bool) -> Result<(), io::Error> 
+pub(crate) 
+fn set_cloexec<FD: AsFd>(_fd: FD,  _: bool) -> Result<(), io::Error> 
 {
     Ok(())
 }
+
 
 /// Enables / disables FIONBIO. Used if SOCK_NONBLOCK can't be used.
 pub 
@@ -381,6 +388,14 @@ impl<ST: SocketType> Socket<ST>
         return Ok(());
     }
 
+    /// Enables / disables CLOEXEC, for when SOCK_CLOEXEC can't be used.
+    #[inline]
+    pub 
+    fn set_cloexec(&self, close_on_exec: bool) -> Result<(), io::Error> 
+    {
+        return set_cloexec(&self.0, close_on_exec);
+    }
+
     #[inline]
     fn new_int(fd: RawFd) -> Self
     {
@@ -417,7 +432,7 @@ impl<ST: SocketType> Socket<ST>
             cvt!(unsafe { socket(AF_UNIX, ST::SOCK_TYPE, 0) })
                 .map(|fd| Socket::new_int(fd))?;
 
-        set_cloexec(socket.0.as_raw_fd(), true)?;
+        socket.set_cloexec(true)?;
         socket.set_nosigpipe(true)?;
 
         if nonblocking == true
@@ -467,7 +482,7 @@ impl<ST: SocketType> Socket<ST>
                         cvt_r!(accept(fd.as_fd().as_raw_fd(), addr_ptr, len_ptr))
                             .map(|fd| Socket::new_int(fd))?;
 
-                    set_cloexec(socket.0.as_raw_fd(), true)?;
+                    socket.set_cloexec(true)?;
                     socket.set_nosigpipe(true)?;
 
                     if nonblocking  == true
@@ -514,7 +529,7 @@ impl<ST: SocketType> Socket<ST>
                     cvt!(unsafe { dup(fd.as_fd().as_raw_fd()) })
                         .map(|fd| Socket::new_int(fd))?;
 
-                set_cloexec(socket.0.as_raw_fd(), true)?;
+                socket.set_cloexec(true)?;
                 socket.set_nosigpipe(true)?;
 
                 return Ok(socket);
@@ -551,8 +566,8 @@ impl<ST: SocketType> Socket<ST>
         let a = Socket::new_int(fd_buf[0]);
         let b = Socket::new_int(fd_buf[1]);
         
-        set_cloexec(a.0.as_raw_fd(), true)?;
-        set_cloexec(b.0.as_raw_fd(), true)?;
+        a.set_cloexec(true)?;
+        b.set_cloexec(true)?;
         
         a.set_nosigpipe(true)?;
         b.set_nosigpipe(true)?;
