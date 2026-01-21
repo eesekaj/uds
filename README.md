@@ -20,6 +20,14 @@ Ancillary credentials and timestamps are not yet supported.
 <details>
   <summary>Changelog</summary>
 
+* Fixed compilation errors on OpenBSD
+* Fixed one test problem (related to what kernel returns)
+
+</details>
+
+<details>
+  <summary>Version 0.5.1 (2026-01-18)</summary>
+
 * Fixed compilation errors on FreeBSD.
 * ! FreeBSD 15 demonstrates strange behaviour with message trancation and empty messages which 
 is not compatiable Linux and FreeBSD 14.

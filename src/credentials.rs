@@ -3,7 +3,7 @@
     clippy::needless_borrowed_reference,
 )]
 
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, AsRawFd};
 use std::{io, fmt};
 use std::num::NonZeroU32;
 use std::io::ErrorKind::*;
@@ -91,8 +91,6 @@ fn selinux_context<FD: AsFd>(fd: FD, buffer: &mut[u8]) -> Result<usize, io::Erro
     let res = 
         unsafe 
         {
-            use std::os::fd::AsRawFd;
-
             getsockopt(fd.as_fd().as_raw_fd(), SOL_SOCKET, SO_PEERSEC, ptr, &mut capacity)    
         };
     
@@ -252,8 +250,6 @@ impl fmt::Debug for ConnCredentials
 pub 
 fn peer_credentials<FD: AsFd>(conn: FD) -> Result<ConnCredentials, io::Error> 
 {
-    use std::os::fd::AsRawFd;
-
     let mut ucred: ucred = unsafe { mem::zeroed() };
 
     let ptr = &mut ucred as *mut ucred as *mut c_void;
@@ -304,8 +300,6 @@ fn peer_credentials<FD: AsFd>(conn: FD) -> Result<ConnCredentials, io::Error>
 
     unsafe 
     {
-        use std::os::fd::AsRawFd;
-
         let ptr = &mut xucred as *mut xucred as *mut c_void;
         let mut size = mem::size_of::<xucred>() as socklen_t;
 

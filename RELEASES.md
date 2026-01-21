@@ -1,3 +1,8 @@
+Version 0.5.2 (2026-01-21)
+==========================
+* Fixed compilation errors on OpenBSD
+* Fixed one test problem (related to what kernel returns)
+
 Version 0.5.1 (2026-01-18)
 ==========================
 * Fixed compilation errors on FreeBSD.
