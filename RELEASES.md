@@ -1,3 +1,8 @@
+Version 0.5.4 (2026-01-26)
+==========================
+* Added missing implementation of `Deref` for `NonblockingUnixSeqpacketListener`.
+* Fixed `address already in use` problems in docs.
+
 Version 0.5.3 (2026-01-25)
 ==========================
 * Added from OwnedFd and from RawFd and from Self to OwnedFd. Functions which performs conversion from OwnedFd to Self perform check of the socket type.

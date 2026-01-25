@@ -835,7 +835,7 @@ impl UnixSeqpacketListener
     /// # use std::io::ErrorKind;
     /// # use uds_fork::{UnixSocketAddr, UnixSeqpacketListener};
     /// 
-    /// let file_path = "/tmp/nonblocking_seqpacket_listener.socket";
+    /// let file_path = "/tmp/nonblocking_seqpacket_listener1.socket";
     /// let addr = UnixSocketAddr::from_path(file_path).unwrap();
     /// let _ = std::fs::remove_file(file_path);
     /// let listener = UnixSeqpacketListener::bind_unix_addr(&addr).expect("create listener");
@@ -1071,7 +1071,7 @@ impl NonblockingUnixSeqpacketConn
 /// use uds_fork::nonblocking::{UnixSeqpacketListener, UnixSeqpacketConn};
 /// use std::io::ErrorKind;
 ///
-/// let file_path = "/tmp/nonblocking_seqpacket_listener.socket";
+/// let file_path = "/tmp/nonblocking_seqpacket_listener2.socket";
 /// 
 /// let _ = std::fs::remove_file(file_path);
 /// let listener = UnixSeqpacketListener::bind(file_path)
@@ -1151,6 +1151,25 @@ impl AsFd for NonblockingUnixSeqpacketListener
     }
 }
 
+
+impl Deref for NonblockingUnixSeqpacketListener
+{
+    type Target = UnixSeqpacketListener;
+
+    fn deref(&self) -> &Self::Target 
+    {
+        &self.usl
+    }
+}
+
+impl DerefMut for NonblockingUnixSeqpacketListener
+{
+    fn deref_mut(&mut self) -> &mut Self::Target 
+    {
+        &mut self.usl
+    }
+}
+
 impl NonblockingUnixSeqpacketListener 
 {
     /// Creates a socket that listens for seqpacket connections on the specified socket file.
@@ -1184,7 +1203,7 @@ impl NonblockingUnixSeqpacketListener
     /// # use uds_fork::nonblocking::UnixSeqpacketListener;
     /// # use std::io::ErrorKind;
     /// #
-    /// let file_path = "/tmp/nonblocking_seqpacket_listener.socket";
+    /// let file_path = "/tmp/nonblocking_seqpacket_listener3.socket";
     /// let _ = std::fs::remove_file(file_path);
     /// let listener = UnixSeqpacketListener::bind(file_path)
     ///     .expect("Cannot create nonblocking seqpacket listener");

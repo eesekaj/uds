@@ -17,8 +17,17 @@ Ancillary credentials and timestamps are not yet supported.
 
 ## Changelog
 
+
 <details>
   <summary>Changelog</summary>
+
+* Added missing implementation of `Deref` for `NonblockingUnixSeqpacketListener`.
+* Fixed `address already in use` problems in docs.
+
+</details>
+
+<details>
+  <summary>Changelog Version 0.5.3 (2026-01-25)</summary>
 
 * Added from OwnedFd and from RawFd and from Self to OwnedFd. Functions which performs conversion from OwnedFd to Self perform check of the socket type.
 * `NonblockingUnixSeqpacketListener` and `NonblockingUnixSeqpacketConn` is now have inside an instance of `UnixSeqpacketConn` and `UnixSeqpacketListener` respectivly which is set to non-blocking.
