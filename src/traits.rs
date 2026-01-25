@@ -21,14 +21,14 @@ pub trait UnixStreamExt: AsFd + AsRawFd + FromRawFd
     /// Get the address of this socket, as a type that fully supports abstract addresses.
     fn local_unix_addr(&self) -> Result<UnixSocketAddr, io::Error> 
     {
-        get_unix_addr(self, GetAddr::LOCAL)
+        get_unix_local_addr(self)
     }
 
     /// Returns the address of the other end of this stream,
     /// as a type that fully supports abstract addresses.
     fn peer_unix_addr(&self) -> Result<UnixSocketAddr, io::Error> 
     {
-        get_unix_addr(self, GetAddr::PEER)
+        get_unix_peer_addr(self)
     }
 
     /// Creates a connection to a listening path-based or abstract named socket.
@@ -75,7 +75,7 @@ impl UnixStreamExt for UnixStream
     fn connect_to_unix_addr(addr: &UnixSocketAddr) -> Result<Self, io::Error> 
     {
         let socket = Socket::<SocketStream>::new(false)?;
-        socket.set_unix_addr(SetAddr::PEER, addr)?;
+        socket.set_unix_peer_addr(addr)?;
         
         return Ok(Self::from( <Socket<SocketStream> as Into<OwnedFd>>::into(socket)));
     }
@@ -83,8 +83,8 @@ impl UnixStreamExt for UnixStream
     fn connect_from_to_unix_addr(from: &UnixSocketAddr,  to: &UnixSocketAddr) -> Result<Self, io::Error> 
     {
         let socket = Socket::<SocketStream>::new(false)?;
-        socket.set_unix_addr(SetAddr::LOCAL, from)?;
-        socket.set_unix_addr(SetAddr::PEER, to)?;
+        socket.set_unix_local_addr(from)?;
+        socket.set_unix_peer_addr(to)?;
         
         return Ok(Self::from( <Socket<SocketStream> as Into<OwnedFd>>::into(socket)));
     }
@@ -103,7 +103,7 @@ pub trait UnixListenerExt: AsFd + AsRawFd + FromRawFd
     /// Returns the address this socket is listening on.
     fn local_unix_addr(&self) -> Result<UnixSocketAddr, io::Error> 
     {
-        get_unix_addr(self, GetAddr::LOCAL)
+        get_unix_local_addr(self)
     }
 
     /// Accepts a connection and returns the client's address as
@@ -118,7 +118,7 @@ impl UnixListenerExt for UnixListener
     fn bind_unix_addr(on: &UnixSocketAddr) -> Result<Self, io::Error> 
     {
         let socket = Socket::<SocketStream>::new(false)?;
-        socket.set_unix_addr(SetAddr::LOCAL, on)?;
+        socket.set_unix_local_addr(on)?;
 
         socket.start_listening()?;
         
@@ -176,25 +176,25 @@ pub trait UnixDatagramExt: AsFd + AsRawFd + FromRawFd
     /// Returns the address of this socket, as a type that fully supports abstract addresses.
     fn local_unix_addr(&self) -> Result<UnixSocketAddr, io::Error> 
     {
-        get_unix_addr(self, GetAddr::LOCAL)
+        get_unix_local_addr(self)
     }
 
     /// Returns the address of the connected socket, as a type that fully supports abstract addresses.
     fn peer_unix_addr(&self) -> Result<UnixSocketAddr, io::Error> 
     {
-        get_unix_addr(self, GetAddr::PEER)
+        get_unix_peer_addr(self)
     }
 
     /// Creates a path or abstract name for the socket.
     fn bind_to_unix_addr(&self,  addr: &UnixSocketAddr) -> Result<(), io::Error> 
     {
-        set_unix_addr(self, SetAddr::LOCAL, addr)
+        set_unix_local_addr(self, addr)
     }
 
     /// Connects the socket to a path-based or abstract named socket.
     fn connect_to_unix_addr(&self,  addr: &UnixSocketAddr) -> Result<(), io::Error> 
     {
-        set_unix_addr(self, SetAddr::PEER, addr)
+        set_unix_peer_addr(self, addr)
     }
 
     /// Sends to the specified address, using an address type that

@@ -1,11 +1,11 @@
 [package]
 name = "uds-fork"
-version = "0.5.2"
+version = "0.5.3"
 description = """
 A unix domain socket crate that supports abstract addresses, fd-passing and seqpacket sockets.
 """
 readme = "README.md"
-repository = "https://github.com/eesekaj/uds/tree/master"
+repository = "https://github.com/eesekaj/uds"
 license = "Apache-2.0 OR MIT"
 authors = ["Torbjørn Birch Moltu <t.b.moltu@lyse.net>", "Aleksandr Morozov <alex@nixd.org>"]
 keywords = ["unix", "socket", "seqpacket", "abstract", "fdpassing"]

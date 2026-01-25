@@ -1,16 +1,12 @@
 #[cfg(any(
-                target_vendor="apple", target_os="freebsd",
-                target_os="netbsd",
-                target_os="illumos", target_os="solaris",
-            ))]
+    target_vendor="apple", target_os="freebsd",
+    target_os="netbsd",
+    target_os="illumos", target_os="solaris",
+))]
 use std::io::ErrorKind;
 use std::
 {
-    io::{self, IoSlice, IoSliceMut}, 
-    net::Shutdown, 
-    os::unix::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd}, 
-    path::Path, 
-    time::Duration
+    io::{self, IoSlice, IoSliceMut}, net::Shutdown, ops::{Deref, DerefMut}, os::unix::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd}, path::Path, time::Duration
 };
 
 use libc::{MSG_EOR, MSG_PEEK, c_void, send, recv};
@@ -70,17 +66,18 @@ use crate::credentials::*;
 #[cfg_attr(target_vendor="apple", doc="```no_run")]
 /// use uds_fork::{UnixSeqpacketListener, UnixSeqpacketConn};
 ///
-/// # let _ = std::fs::remove_file("/tmp/seqpacket.socket"); // pre-emptively delete just in case
-/// let listener = UnixSeqpacketListener::bind("/tmp/seqpacket.socket")
+/// let file_path = "/tmp/seqpacket.socket";
+/// let _ = std::fs::remove_file(file_path); // pre-emptively delete just in case
+/// let listener = UnixSeqpacketListener::bind(file_path)
 ///     .expect("create seqpacket listener");
-/// let conn = UnixSeqpacketConn::connect("/tmp/seqpacket.socket")
+/// let conn = UnixSeqpacketConn::connect(file_path)
 ///     .expect("connect to seqpacket listener");
 ///
 /// let message = "Hello, listener";
 /// let sent = conn.send(message.as_bytes()).unwrap();
 /// assert_eq!(sent, message.len());
 ///
-/// std::fs::remove_file("/tmp/seqpacket.socket").unwrap(); // clean up after ourselves
+/// std::fs::remove_file(file_path).unwrap(); // clean up after ourselves
 /// ```
 ///
 /// Connect to a listener on an abstract address:
@@ -103,6 +100,23 @@ pub struct UnixSeqpacketConn
     fd: OwnedFd,
 }
 
+impl From<OwnedFd> for UnixSeqpacketConn
+{
+    fn from(ofd: OwnedFd) -> Self 
+    {
+        let sa_fam = get_socket_family(&ofd).unwrap();
+        let sa_type = get_socket_type(&ofd).unwrap() & 0x00000FFF;
+
+        if sa_fam as i32 != libc::AF_UNIX || sa_type != libc::SOCK_SEQPACKET
+        {
+            panic!("assertion trap: provided FD is not AF_UNIX & SOCK_SEQPACKET, {} {}", 
+                sa_fam, sa_type);
+        }
+
+        return UnixSeqpacketConn{ fd: ofd };
+    }
+}
+
 impl From<UnixSeqpacketConn> for OwnedFd
 {
     fn from(value: UnixSeqpacketConn) -> Self 
@@ -116,8 +130,7 @@ impl FromRawFd for UnixSeqpacketConn
     unsafe 
     fn from_raw_fd(fd: RawFd) -> Self 
     {
-        return 
-            UnixSeqpacketConn { fd: unsafe { OwnedFd::from_raw_fd(fd) } };
+        UnixSeqpacketConn::from( unsafe { OwnedFd::from_raw_fd(fd) } )
     }
 }
 
@@ -154,7 +167,8 @@ impl UnixSeqpacketConn
     fn connect<P: AsRef<Path>>(path: P) -> Result<Self, io::Error> 
     {
         let addr = UnixSocketAddr::from_path(&path)?;
-        Self::connect_unix_addr(&addr)
+
+        return Self::connect_unix_addr(&addr);
     }
 
     /// Connects to an unix seqpacket server listening at `addr`.
@@ -162,7 +176,7 @@ impl UnixSeqpacketConn
     fn connect_unix_addr(addr: &UnixSocketAddr) -> Result<Self, io::Error> 
     {
         let socket = Socket::<SocketSeqPkt>::new(false)?;
-        socket.set_unix_addr(SetAddr::PEER,  addr)?;
+        socket.set_unix_peer_addr(addr)?;
         
         return Ok(UnixSeqpacketConn { fd: socket.into() });
     }
@@ -172,10 +186,10 @@ impl UnixSeqpacketConn
     fn connect_from_to_unix_addr(from: &UnixSocketAddr,  to: &UnixSocketAddr) -> Result<Self, io::Error> 
     {
         let socket = Socket::<SocketSeqPkt>::new(false)?;
-        socket.set_unix_addr(SetAddr::LOCAL, from)?;
-        socket.set_unix_addr(SetAddr::PEER, to)?;
+        socket.set_unix_local_addr(from)?;
+        socket.set_unix_peer_addr(to)?;
         
-        return Ok(UnixSeqpacketConn { fd: socket.into() });
+        return Ok(UnixSeqpacketConn{ fd: socket.into() });
     }
 
     /// Creates a pair of unix-domain seqpacket conneections connected to each other.
@@ -208,14 +222,14 @@ impl UnixSeqpacketConn
     pub 
     fn local_unix_addr(&self) -> Result<UnixSocketAddr, io::Error> 
     {
-        get_unix_addr(&self, GetAddr::LOCAL)
+        get_unix_local_addr(&self)
     }
 
     /// Returns the address of the other side of the connection.
     pub 
     fn peer_unix_addr(&self) -> Result<UnixSocketAddr, io::Error> 
     {
-        get_unix_addr(&self, GetAddr::PEER)
+        get_unix_peer_addr(&self)
     }
 
     /// Returns information about the process of the peer when the connection was established.
@@ -245,12 +259,14 @@ impl UnixSeqpacketConn
 
     /// Sends a packet to the peer.
     pub 
-    fn send(&self,  packet: &[u8]) -> Result<usize, io::Error> 
+    fn send(&self, packet: &[u8]) -> Result<usize, io::Error> 
     {
         let ptr = packet.as_ptr() as *const c_void;
         let flags = MSG_NOSIGNAL | MSG_EOR;
         let sent = cvt_r!(unsafe { send(self.fd.as_raw_fd(), ptr, packet.len(), flags) })?;
-        Ok(sent as usize)
+        
+        
+        return Ok(sent as usize);
     }
 
     /// Sends a packet to the peer.
@@ -259,16 +275,18 @@ impl UnixSeqpacketConn
     {
         let ptr = packet.as_ptr() as *const c_void;
         let sent = cvt_r!(unsafe { send(self.fd.as_raw_fd(), ptr, packet.len(), flags) })?;
-        Ok(sent as usize)
+        
+        return Ok(sent as usize);
     }
 
     /// Receives a packet from the peer.
     pub 
-    fn recv(&self,  buffer: &mut[u8]) -> Result<usize, io::Error> 
+    fn recv(&self, buffer: &mut[u8]) -> Result<usize, io::Error> 
     {
         let ptr = buffer.as_ptr() as *mut c_void;
         let received = cvt_r!(unsafe { recv(self.fd.as_raw_fd(), ptr, buffer.len(), MSG_NOSIGNAL) })?;
-        Ok(received as usize)
+        
+        return Ok(received as usize);
     }
 
     /// Sends a packet assembled from multiple byte slices.
@@ -326,7 +344,8 @@ impl UnixSeqpacketConn
         let ptr = buffer.as_ptr() as *mut c_void;
         let flags = MSG_NOSIGNAL | MSG_PEEK;
         let received = cvt_r!(unsafe { recv(self.fd.as_raw_fd(), ptr, buffer.len(), flags) })?;
-        Ok(received as usize)
+        
+        return Ok(received as usize);
     }
 
     /// Receives a packet without removing it from the incoming queue.
@@ -440,8 +459,9 @@ impl UnixSeqpacketConn
     pub 
     fn set_read_timeout(&self, timeout: Option<Duration>) -> Result<(), io::Error> 
     {
-        set_timeout(self.fd.as_fd(), TimeoutDirection::READ, timeout)
+        set_timeout(self.fd.as_fd(), TimeoutDirection::Read, timeout)
     }
+
     /// Returns the read timeout of this socket.
     ///
     /// `None` is returned if there is no timeout.
@@ -464,7 +484,7 @@ impl UnixSeqpacketConn
     pub 
     fn read_timeout(&self) -> Result<Option<Duration>, io::Error> 
     {
-        get_timeout(self.fd.as_fd(), TimeoutDirection::READ)
+        get_timeout(self.fd.as_fd(), TimeoutDirection::Read)
     }
 
     /// Sets the write timeout to the duration specified.
@@ -498,7 +518,7 @@ impl UnixSeqpacketConn
     pub 
     fn set_write_timeout(&self,  timeout: Option<Duration>)-> Result<(), io::Error> 
     {
-        set_timeout(self.fd.as_fd(), TimeoutDirection::WRITE, timeout)
+        set_timeout(self.fd.as_fd(), TimeoutDirection::Write, timeout)
     }
 
     /// Returns the write timeout of this socket.
@@ -515,7 +535,7 @@ impl UnixSeqpacketConn
     pub 
     fn write_timeout(&self) -> Result<Option<Duration>, io::Error> 
     {
-        get_timeout(self.fd.as_fd(), TimeoutDirection::WRITE)
+        get_timeout(self.fd.as_fd(), TimeoutDirection::Write)
     }
 
     /// Enables or disables nonblocking mode.
@@ -561,13 +581,17 @@ impl UnixSeqpacketConn
     pub 
     fn shutdown(&self, how: Shutdown) -> io::Result<()> 
     {
-        let how = match how {
-            Shutdown::Read => libc::SHUT_RD,
-            Shutdown::Write => libc::SHUT_WR,
-            Shutdown::Both => libc::SHUT_RDWR,
-        };
+        let how = 
+            match how 
+            {
+                Shutdown::Read => libc::SHUT_RD,
+                Shutdown::Write => libc::SHUT_WR,
+                Shutdown::Both => libc::SHUT_RDWR,
+            };
+
         unsafe { cvt!(libc::shutdown(self.as_raw_fd(), how)) }?;
-        Ok(())
+        
+        return Ok(());
     }
 }
 
@@ -582,13 +606,14 @@ impl UnixSeqpacketConn
 ///
 #[cfg_attr(not(target_vendor="apple"), doc="```")]
 #[cfg_attr(target_vendor="apple", doc="```no_run")]
-/// # let _ = std::fs::remove_file("/tmp/seqpacket_listener.socket");
-/// let listener = uds_fork::UnixSeqpacketListener::bind("/tmp/seqpacket_listener.socket")
+/// let file_path = "/tmp/seqpacket_listener.socket";
+/// let _ = std::fs::remove_file(file_path);
+/// let listener = uds_fork::UnixSeqpacketListener::bind(file_path)
 ///     .expect("Create seqpacket listener");
-/// let _client = uds_fork::UnixSeqpacketConn::connect("/tmp/seqpacket_listener.socket").unwrap();
+/// let _client = uds_fork::UnixSeqpacketConn::connect(file_path).unwrap();
 /// let (conn, _addr) = listener.accept_unix_addr().unwrap();
 /// conn.send(b"Welcome").unwrap();
-/// # std::fs::remove_file("/tmp/seqpacket_listener.socket").unwrap();
+/// # std::fs::remove_file(file_path).unwrap();
 /// ```
 #[derive(Debug)]
 #[repr(transparent)]
@@ -598,13 +623,37 @@ pub struct UnixSeqpacketListener
 }
 
 
+impl From<OwnedFd> for UnixSeqpacketListener
+{
+    fn from(ofd: OwnedFd) -> Self 
+    {
+        let sa_fam = get_socket_family(&ofd).unwrap();
+        let sa_type = get_socket_type(&ofd).unwrap() & 0x00000FFF;
+
+        if sa_fam as i32 != libc::AF_UNIX || sa_type != libc::SOCK_SEQPACKET
+        {
+            panic!("assertion trap: provided FD is not AF_UNIX & SOCK_SEQPACKET, {} {}", 
+                sa_fam, sa_type);
+        }
+
+        return UnixSeqpacketListener{ fd: ofd };
+    }
+}
+
+impl From<UnixSeqpacketListener> for OwnedFd
+{
+    fn from(value: UnixSeqpacketListener) -> Self 
+    {
+        return value.fd;
+    }
+}
+
 impl FromRawFd for UnixSeqpacketListener
 {
     unsafe 
     fn from_raw_fd(fd: RawFd) -> Self 
     {
-        return 
-            Self{ fd: unsafe { OwnedFd::from_raw_fd(fd) } };
+        UnixSeqpacketListener::from( unsafe { OwnedFd::from_raw_fd(fd) } )
     }
 }
 
@@ -649,7 +698,7 @@ impl UnixSeqpacketListener
     {
         let socket = Socket::<SocketSeqPkt>::new(false)?;
 
-        socket.set_unix_addr(SetAddr::LOCAL, addr)?;
+        socket.set_unix_local_addr(addr)?;
         socket.start_listening()?;
         
         return Ok(UnixSeqpacketListener { fd: socket.into() });
@@ -659,7 +708,7 @@ impl UnixSeqpacketListener
     pub 
     fn local_unix_addr(&self) -> Result<UnixSocketAddr, io::Error> 
     {
-        get_unix_addr(&self, GetAddr::LOCAL)
+        get_unix_local_addr(&self)
     }
 
     /// Accepts a new incoming connection to this listener.
@@ -723,7 +772,7 @@ impl UnixSeqpacketListener
     pub 
     fn set_timeout(&self,  timeout: Option<Duration>) -> Result<(), io::Error> 
     {
-        let res = set_timeout(&self, TimeoutDirection::READ, timeout);
+        let res = set_timeout(&self, TimeoutDirection::Read, timeout);
 
         #[cfg(any(
                 target_vendor="apple", target_os="freebsd",
@@ -769,7 +818,7 @@ impl UnixSeqpacketListener
     pub 
     fn timeout(&self) -> Result<Option<Duration>, io::Error> 
     {
-        get_timeout(&self, TimeoutDirection::READ)
+        get_timeout(&self, TimeoutDirection::Read)
     }
 
     /// Enables or disables nonblocking-ness of [`accept_unix_addr()`](#method.accept_unix addr).
@@ -785,13 +834,14 @@ impl UnixSeqpacketListener
     #[cfg_attr(target_vendor="apple", doc="```no_run")]
     /// # use std::io::ErrorKind;
     /// # use uds_fork::{UnixSocketAddr, UnixSeqpacketListener};
-    /// #
-    /// # let addr = UnixSocketAddr::from_path("/tmp/nonblocking_seqpacket_listener.socket").unwrap();
-    /// # let _ = std::fs::remove_file("/tmp/nonblocking_seqpacket_listener.socket");
+    /// 
+    /// let file_path = "/tmp/nonblocking_seqpacket_listener.socket";
+    /// let addr = UnixSocketAddr::from_path(file_path).unwrap();
+    /// let _ = std::fs::remove_file(file_path);
     /// let listener = UnixSeqpacketListener::bind_unix_addr(&addr).expect("create listener");
     /// listener.set_nonblocking(true).expect("enable noblocking mode");
     /// assert_eq!(listener.accept_unix_addr().unwrap_err().kind(), ErrorKind::WouldBlock);
-    /// # std::fs::remove_file("/tmp/nonblocking_seqpacket_listener.socket").expect("delete socket file");
+    /// # std::fs::remove_file(file_path).expect("delete socket file");
     /// ```
     pub 
     fn set_nonblocking(&self,  nonblocking: bool) -> Result<(), io::Error> 
@@ -833,18 +883,30 @@ impl UnixSeqpacketListener
 ///     }
 /// }
 /// ```
+//#[deprecated = "Use UnixSeqpacketListener set_nonblocking(true)!"]
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct NonblockingUnixSeqpacketConn 
 {
-    fd: OwnedFd,
+    usc: UnixSeqpacketConn,
+}
+
+impl From<OwnedFd> for NonblockingUnixSeqpacketConn
+{
+    fn from(value: OwnedFd) -> Self 
+    {
+        let usc = UnixSeqpacketConn::from(value);
+        usc.set_nonblocking(true).unwrap();
+
+        return Self{ usc: usc };
+    }
 }
 
 impl From<NonblockingUnixSeqpacketConn> for OwnedFd
 {
     fn from(value: NonblockingUnixSeqpacketConn) -> Self 
     {
-        return value.fd;
+        return value.usc.fd;
     }
 }
 
@@ -853,8 +915,10 @@ impl FromRawFd for NonblockingUnixSeqpacketConn
     unsafe 
     fn from_raw_fd(fd: RawFd) -> Self 
     {
-        return 
-            Self{ fd: unsafe { OwnedFd::from_raw_fd(fd) } };
+        let usc = unsafe{ UnixSeqpacketConn::from_raw_fd(fd) };
+        usc.set_nonblocking(true).unwrap();
+
+        return Self{ usc: usc };
     }
 }
 
@@ -862,14 +926,14 @@ impl AsRawFd for NonblockingUnixSeqpacketConn
 {
     fn as_raw_fd(&self) -> RawFd 
     {
-        self.fd.as_raw_fd()
+        self.usc.as_raw_fd()
     }
 }
 impl IntoRawFd for NonblockingUnixSeqpacketConn
 {
     fn into_raw_fd(self) -> RawFd 
     {
-        self.fd.into_raw_fd()
+        self.usc.into_raw_fd()
     }
 }
 
@@ -877,10 +941,27 @@ impl AsFd for NonblockingUnixSeqpacketConn
 {
     fn as_fd(&self) -> BorrowedFd<'_> 
     {
-        self.fd.as_fd()
+        self.usc.as_fd()
     }
 }
 
+impl Deref for NonblockingUnixSeqpacketConn
+{
+    type Target = UnixSeqpacketConn;
+
+    fn deref(&self) -> &Self::Target 
+    {
+        &self.usc
+    }
+}
+
+impl DerefMut for NonblockingUnixSeqpacketConn
+{
+    fn deref_mut(&mut self) -> &mut Self::Target 
+    {
+        &mut self.usc
+    }
+}
 
 // can't Deref<Target=UnixSeqpacketConn> because that would include try_clone()
 // and later set_(read|write)_timeout()
@@ -903,256 +984,69 @@ impl NonblockingUnixSeqpacketConn
     fn connect_unix_addr(addr: &UnixSocketAddr) -> Result<Self, io::Error> 
     {
         let socket = Socket::<SocketSeqPkt>::new(true)?;
-        socket.set_unix_addr(SetAddr::PEER, addr)?;
+        socket.set_unix_peer_addr(addr)?;
         
-        return Ok(NonblockingUnixSeqpacketConn { fd: socket.into() });
+        return Ok(
+            NonblockingUnixSeqpacketConn 
+            {
+                usc: UnixSeqpacketConn { fd: socket.into() }
+            }
+        );
     }
-
-    /// Binds to an address before connecting to a listening seqpacket socket.
+    
+    /// Binds to an address before connecting to a listening seqpacet socket.
     pub 
     fn connect_from_to_unix_addr(from: &UnixSocketAddr,  to: &UnixSocketAddr) -> Result<Self, io::Error> 
     {
         let socket = Socket::<SocketSeqPkt>::new(true)?;
-        socket.set_unix_addr(SetAddr::LOCAL, from)?;
-        socket.set_unix_addr(SetAddr::PEER, to)?;
+        socket.set_unix_local_addr(from)?;
+        socket.set_unix_peer_addr(to)?;
         
-        return Ok(NonblockingUnixSeqpacketConn { fd: socket.into() });
+        return Ok(
+            NonblockingUnixSeqpacketConn 
+            {
+                usc: UnixSeqpacketConn { fd: socket.into() }
+            }
+        );
     }
 
-    /// Creates a pair of nonblocking unix-domain seqpacket conneections connected to each other.
+    /// Creates a pair of unix-domain seqpacket conneections connected to each other.
     ///
     /// # Examples
     ///
     #[cfg_attr(not(target_vendor="apple"), doc="```")]
     #[cfg_attr(target_vendor="apple", doc="```no_run")]
-    /// let (a, b) = uds_fork::nonblocking::UnixSeqpacketConn::pair().unwrap();
+    /// let (a, b) = uds_fork::UnixSeqpacketConn::pair().unwrap();
     /// assert!(a.local_unix_addr().unwrap().is_unnamed());
     /// assert!(b.local_unix_addr().unwrap().is_unnamed());
-    /// assert_eq!(b.recv(&mut[0; 20]).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    ///
     /// a.send(b"hello").unwrap();
-    /// assert_eq!(b.recv(&mut[0; 20]).unwrap(), 5);
+    /// b.recv(&mut[0; 20]).unwrap();
     /// ```
     pub 
     fn pair() -> Result<(Self, Self), io::Error> 
     {
         let pair = Socket::<SocketSeqPkt>::pair(true)?;
-                
+        
         return Ok(
             (
-                NonblockingUnixSeqpacketConn { fd: pair.0.into() }, 
-                NonblockingUnixSeqpacketConn { fd: pair.1.into() }
+                Self{ usc: UnixSeqpacketConn { fd: pair.0.into() } },
+                Self{ usc: UnixSeqpacketConn { fd: pair.1.into() } },
             )
         );
     }
 
-    /// Returns the address of this side of the connection.
-    pub 
-    fn local_unix_addr(&self) -> Result<UnixSocketAddr, io::Error> 
-    {
-        get_unix_addr(&self, GetAddr::LOCAL)
-    }
-    
-    /// Returns the address of the other side of the connection.
-    pub 
-    fn peer_unix_addr(&self) -> Result<UnixSocketAddr, io::Error> 
-    {
-        get_unix_addr(&self, GetAddr::PEER)
-    }
-
-    /// Returns information about the process of the peer when the connection was established.
-    ///
-    /// See documentation of the returned type for details.
-    pub 
-    fn initial_peer_credentials(&self) -> Result<ConnCredentials, io::Error> 
-    {
-        peer_credentials(&self)
-    }
-
-    /// Returns the SELinux security context of the process that created the other
-    /// end of this connection.
-    ///
-    /// Will return an error on other operating systems than Linux or Android,
-    /// and also if running inside kubernetes.
-    /// On success the number of bytes used is returned. (like `Read`)
-    ///
-    /// The default security context is `unconfined`, without any trailing NUL.  
-    /// A buffor of 50 bytes is probably always big enough.
-    pub 
-    fn initial_peer_selinux_context(&self,  buf: &mut[u8]) -> Result<usize, io::Error> 
-    {
-        selinux_context(&self, buf)
-    }
-
-    /// Sends a packet to the peer.
-    pub 
-    fn send(&self,  packet: &[u8]) -> Result<usize, io::Error> 
-    {
-        let ptr = packet.as_ptr() as *const c_void;
-        let flags = MSG_NOSIGNAL | MSG_EOR;
-        let sent = cvt_r!(unsafe { send(self.fd.as_raw_fd(), ptr, packet.len(), flags) })?;
-        
-        return Ok(sent as usize);
-    }
-
-    pub 
-    fn send_flags(&self,  packet: &[u8], flags: i32) -> Result<usize, io::Error> 
-    {
-        let ptr = packet.as_ptr() as *const c_void;
-        let sent = cvt_r!(unsafe { send(self.fd.as_raw_fd(), ptr, packet.len(), flags) })?;
-        
-        return Ok(sent as usize);
-    }
-
-    /// Receives a packet from the peer.
-    pub 
-    fn recv(&self,  buffer: &mut[u8]) -> Result<usize, io::Error> 
-    {
-        let ptr = buffer.as_ptr() as *mut c_void;
-        let received = cvt_r!(unsafe { recv(self.fd.as_raw_fd(), ptr, buffer.len(), MSG_NOSIGNAL) })?;
-        
-        return Ok(received as usize);
-    }
-    /// Sends a packet assembled from multiple byte slices.
-    pub 
-    fn send_vectored(&self,  slices: &[IoSlice]) -> Result<usize, io::Error> 
-    {
-        // Can't use writev() because we need to pass flags,
-        // and the flags accepted by pwritev2() aren't the one we need to pass.
-        send_ancillary(&self, None, MSG_EOR, slices, Vec::new(), None)
-    }
-
-    /// Reads a packet into multiple buffers.
-    ///
-    /// The returned `bool` indicates whether the packet was truncated due to
-    /// too short buffers.
-    pub 
-    fn recv_vectored(&self,  buffers: &mut[IoSliceMut]) -> Result<(usize, bool), io::Error> 
-    {
-        recv_ancillary(&self, None, 0, buffers, &mut[])
-            .map(|(bytes, ancillary)| (bytes, ancillary.message_truncated()) )
-    }
-
-    /// Sends a packet with associated file descriptors.
-    pub 
-    fn send_fds(&self,  bytes: &[u8],  fds: Vec<OwnedFd>) -> Result<usize, io::Error> 
-    {
-        send_ancillary(&self, None, MSG_EOR, &[IoSlice::new(bytes)], fds, None)
-    }
-
-    /// Receives a packet and associated file descriptors.
-    pub 
-    fn recv_fds(&self, byte_buffer: &mut[u8], fd_buffer: &mut Vec<OwnedFd>) -> Result<(usize, bool, usize), io::Error> 
-    {
-        recv_fds(&self, None, &mut[IoSliceMut::new(byte_buffer)], Some(fd_buffer))
-    }
-
-    /// Receives a packet without removing it from the incoming queue.
-    ///
-    /// # Examples
-    ///
-    #[cfg_attr(not(target_vendor="apple"), doc="```")]
-    #[cfg_attr(target_vendor="apple", doc="```no_run")]
-    /// # use std::io::ErrorKind::*;
-    /// let (a, b) = uds_fork::nonblocking::UnixSeqpacketConn::pair().unwrap();
-    /// let mut buf = [0u8; 10];
-    /// assert_eq!(b.peek(&mut buf).unwrap_err().kind(), WouldBlock);
-    /// a.send(b"hello").unwrap();
-    /// assert_eq!(b.peek(&mut buf).unwrap(), 5);
-    /// assert_eq!(&buf[..5], b"hello");
-    /// assert_eq!(b.recv(&mut buf).unwrap(), 5);
-    /// assert_eq!(&buf[..5], b"hello");
-    /// assert_eq!(b.peek(&mut buf).unwrap_err().kind(), WouldBlock);
-    /// ```
-    pub 
-    fn peek(&self,  buffer: &mut[u8]) -> Result<usize, io::Error> 
-    {
-        let ptr = buffer.as_ptr() as *mut c_void;
-        let flags = MSG_NOSIGNAL | MSG_PEEK;
-        let received = cvt_r!(unsafe { recv(self.fd.as_raw_fd(), ptr, buffer.len(), flags) })?;
-        
-        return Ok(received as usize);
-    }
-
-    /// Receives a packet without removing it from the incoming queue.
-    ///
-    /// The returned `bool` indicates whether the packet was truncated due to
-    /// the combined buffers being too small.
-    pub 
-    fn peek_vectored(&self,  buffers: &mut[IoSliceMut]) -> Result<(usize, bool), io::Error> 
-    {
-        recv_ancillary(&self, None, MSG_PEEK, buffers, &mut[])
-            .map(|(bytes, ancillary)| (bytes, ancillary.message_truncated()) )
-    }
-
-    /// Returns the value of the `SO_ERROR` option.
-    ///
-    /// This might only provide errors generated from nonblocking `connect()`s,
-    /// which this library doesn't support. It is therefore unlikely to be 
-    /// useful, but is provided for parity with `mio`s `UnixStream`.
-    ///
-    /// # Examples
-    ///
-    #[cfg_attr(not(target_vendor="apple"), doc="```")]
-    #[cfg_attr(target_vendor="apple", doc="```no_run")]
-    /// let (a, _b) = uds_fork::nonblocking::UnixSeqpacketConn::pair().unwrap();
-    ///
-    /// assert!(a.recv(&mut[0u8; 1024]).is_err());
-    /// assert!(a.take_error().unwrap().is_none());
-    /// ```
-    pub 
-    fn take_error(&self) -> Result<Option<io::Error>, io::Error> 
-    {
-        take_error(&self)
-    }
-
-    // note: freebsd  reports error on line 
-    // assert_eq!(a1.recv(&mut[0u8; 10]).unwrap_err().kind(), ErrorKind::Woul ... recv 
-    // thread 'main' (105211) panicked at /tmp/rustdoctestEFy1yO/doctest_bundle_2024.rs:283:35:
-    // called `Result::unwrap_err()` on an `Ok` value: 10
-
-    /// Creates a new file descriptor also pointing to this side of this connection.
-    ///
-    /// # Examples
-    ///
-    #[cfg_attr(not(target_vendor="apple"), doc="```")]
-    #[cfg_attr(any(target_vendor="apple", target_os = "freebsd"), doc="```no_run")]
-    /// # use uds_fork::nonblocking::UnixSeqpacketConn;
-    /// # use std::io::ErrorKind;
-    /// #
-    /// let (a1, b) = UnixSeqpacketConn::pair().unwrap();
-    /// b.send(b"first come first serve").unwrap();
-    /// let a2 = a1.try_clone().unwrap();
-    /// a2.recv(&mut[0u8; 10]).unwrap();
-    /// assert_eq!(a1.recv(&mut[0u8; 10]).unwrap_err().kind(), ErrorKind::WouldBlock);
-    ///
-    /// b.send(b"more").unwrap();
-    /// a1.recv(&mut[0u8; 10]).unwrap();
-    /// assert_eq!(a2.recv(&mut[0u8; 10]).unwrap_err().kind(), ErrorKind::WouldBlock);
-    /// ```
     pub 
     fn try_clone(&self) -> Result<Self, io::Error> 
     {
-        let cloned = Socket::<SocketSeqPkt>::try_clone_from(&self)?;
-        // nonblockingness is shared and therefore inherited
-        
-        return Ok(NonblockingUnixSeqpacketConn { fd: cloned.into() });
-    }
+        let cloned = Socket::<SocketSeqPkt>::try_clone_from(self)?;
 
-    /// Shuts down the read, write, or both halves of this connection.
-    pub 
-    fn shutdown(&self, how: Shutdown) -> io::Result<()> 
-    {
-        let how = 
-            match how 
+        return Ok(
+            NonblockingUnixSeqpacketConn 
             {
-                Shutdown::Read => libc::SHUT_RD,
-                Shutdown::Write => libc::SHUT_WR,
-                Shutdown::Both => libc::SHUT_RDWR,
-            };
-
-        unsafe { cvt!(libc::shutdown(self.as_raw_fd(), how)) }?;
-        
-        return Ok(());
+                usc: UnixSeqpacketConn { fd: cloned.into() }
+            }
+        );
     }
 }
 
@@ -1177,25 +1071,38 @@ impl NonblockingUnixSeqpacketConn
 /// use uds_fork::nonblocking::{UnixSeqpacketListener, UnixSeqpacketConn};
 /// use std::io::ErrorKind;
 ///
-/// # let _ = std::fs::remove_file("/tmp/nonblocking_seqpacket_listener.socket");
-/// let listener = UnixSeqpacketListener::bind("/tmp/nonblocking_seqpacket_listener.socket")
+/// let file_path = "/tmp/nonblocking_seqpacket_listener.socket";
+/// 
+/// let _ = std::fs::remove_file(file_path);
+/// let listener = UnixSeqpacketListener::bind(file_path)
 ///     .expect("Cannot create nonblocking seqpacket listener");
 ///
 /// // doesn't block if no connections are waiting:
 /// assert_eq!(listener.accept_unix_addr().unwrap_err().kind(), ErrorKind::WouldBlock);
 ///
 /// // returned connections are nonblocking:
-/// let _client = UnixSeqpacketConn::connect("/tmp/nonblocking_seqpacket_listener.socket").unwrap();
+/// let _client = UnixSeqpacketConn::connect(file_path).unwrap();
 /// let (conn, _addr) = listener.accept_unix_addr().unwrap();
 /// assert_eq!(conn.recv(&mut[0u8; 20]).unwrap_err().kind(), ErrorKind::WouldBlock);
 /// #
-/// # std::fs::remove_file("/tmp/nonblocking_seqpacket_listener.socket").unwrap();
+/// # std::fs::remove_file(file_path).unwrap();
 /// ```
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct NonblockingUnixSeqpacketListener 
 {
-    fd: OwnedFd
+    usl: UnixSeqpacketListener,
+}
+
+impl From<OwnedFd> for NonblockingUnixSeqpacketListener
+{
+    fn from(ofd: OwnedFd) -> Self 
+    {
+        let usl = UnixSeqpacketListener::from(ofd);
+        usl.set_nonblocking(true).unwrap();
+
+        return Self{ usl };
+    }
 }
 
 impl FromRawFd for NonblockingUnixSeqpacketListener
@@ -1203,16 +1110,28 @@ impl FromRawFd for NonblockingUnixSeqpacketListener
     unsafe 
     fn from_raw_fd(fd: RawFd) -> Self 
     {
-        return 
-            Self{ fd: unsafe { OwnedFd::from_raw_fd(fd) } };
+        let usl = unsafe{ UnixSeqpacketListener::from_raw_fd(fd) };
+        usl.set_nonblocking(true).unwrap();
+
+        return Self{ usl };
     }
 }
+
+
+impl From<NonblockingUnixSeqpacketListener> for OwnedFd
+{
+    fn from(value: NonblockingUnixSeqpacketListener) -> Self 
+    {
+        return value.usl.fd;
+    }
+}
+
 
 impl AsRawFd for NonblockingUnixSeqpacketListener
 {
     fn as_raw_fd(&self) -> RawFd 
     {
-        self.fd.as_raw_fd()
+        self.usl.as_raw_fd()
     }
 }
 
@@ -1220,7 +1139,7 @@ impl IntoRawFd for NonblockingUnixSeqpacketListener
 {
     fn into_raw_fd(self) -> RawFd 
     {
-        self.fd.into_raw_fd()
+        self.usl.into_raw_fd()
     }
 }
 
@@ -1228,7 +1147,7 @@ impl AsFd for NonblockingUnixSeqpacketListener
 {
     fn as_fd(&self) -> BorrowedFd<'_> 
     {
-        self.fd.as_fd()
+        self.usl.as_fd()
     }
 }
 
@@ -1248,17 +1167,10 @@ impl NonblockingUnixSeqpacketListener
     fn bind_unix_addr(addr: &UnixSocketAddr) -> Result<Self, io::Error> 
     {
         let socket = Socket::<SocketSeqPkt>::new(true)?;
-        socket.set_unix_addr(SetAddr::LOCAL, addr)?;
+        socket.set_unix_local_addr(addr)?;
         socket.start_listening()?;
 
-        return Ok(NonblockingUnixSeqpacketListener { fd: socket.into() });
-    }
-
-    /// Returns the address this listener was bound to.
-    pub 
-    fn local_unix_addr(&self) -> Result<UnixSocketAddr, io::Error> 
-    {
-        get_unix_addr(&self, GetAddr::LOCAL)
+        return Ok( Self{ usl: UnixSeqpacketListener{ fd: socket.into() }} );
     }
 
     /// Accepts a non-blocking connection, non-blockingly.
@@ -1272,51 +1184,19 @@ impl NonblockingUnixSeqpacketListener
     /// # use uds_fork::nonblocking::UnixSeqpacketListener;
     /// # use std::io::ErrorKind;
     /// #
-    /// let _ = std::fs::remove_file("/tmp/nonblocking_seqpacket_listener.socket");
-    /// let listener = UnixSeqpacketListener::bind("/tmp/nonblocking_seqpacket_listener.socket")
+    /// let file_path = "/tmp/nonblocking_seqpacket_listener.socket";
+    /// let _ = std::fs::remove_file(file_path);
+    /// let listener = UnixSeqpacketListener::bind(file_path)
     ///     .expect("Cannot create nonblocking seqpacket listener");
     /// assert_eq!(listener.accept_unix_addr().unwrap_err().kind(), ErrorKind::WouldBlock);
-    /// std::fs::remove_file("/tmp/nonblocking_seqpacket_listener.socket").unwrap();
+    /// std::fs::remove_file(file_path).unwrap();
     /// ```
     pub 
     fn accept_unix_addr(&self) -> Result<(NonblockingUnixSeqpacketConn, UnixSocketAddr), io::Error> 
     {
         let (socket, addr) = Socket::<SocketSeqPkt>::accept_from(&self, true)?;
-        let conn = NonblockingUnixSeqpacketConn { fd: socket.into() };
+        let conn = NonblockingUnixSeqpacketConn { usc: UnixSeqpacketConn{ fd: socket.into() }};
         
         return Ok((conn, addr));
-    }
-
-    /// Returns the value of the `SO_ERROR` option.
-    ///
-    /// This might never produce any errors for listeners. It is therefore
-    /// unlikely to be useful, but is provided for parity with `mio`s
-    /// `UnixListener`.
-    ///
-    /// # Examples
-    ///
-    #[cfg_attr(any(target_os="linux", target_os="android"), doc="```")]
-    #[cfg_attr(not(any(target_os="linux", target_os="android")), doc="```no_run")]
-    /// let listener = uds_fork::nonblocking::UnixSeqpacketListener::bind_unix_addr(
-    ///     &uds_fork::UnixSocketAddr::new("@nonblocking_take_error").unwrap()
-    /// ).unwrap();
-    ///
-    /// assert!(listener.accept_unix_addr().is_err());
-    /// assert!(listener.take_error().unwrap().is_none());
-    /// ```
-    pub 
-    fn take_error(&self) -> Result<Option<io::Error>, io::Error> 
-    {
-        take_error(&self)
-    }
-
-    /// Creates a new file descriptor listening for the same connections.
-    pub 
-    fn try_clone(&self) -> Result<Self, io::Error> 
-    {
-        let cloned = Socket::<SocketSeqPkt>::try_clone_from(&self)?;
-        // nonblockingness is shared and therefore inherited
-        
-        return Ok(NonblockingUnixSeqpacketListener { fd: cloned.into() });
     }
 }

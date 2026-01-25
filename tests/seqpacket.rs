@@ -2,18 +2,35 @@
 
 use std::
 {
-    io::{ErrorKind::{self, *}, IoSlice, IoSliceMut}, net::Shutdown, os::fd::OwnedFd, time::{Duration, Instant}
+    io::{ErrorKind::{self, *}, IoSlice, IoSliceMut}, net::Shutdown, os::fd::{FromRawFd, OwnedFd}, time::{Duration, Instant}
 };
+
 
 use uds_fork::nonblocking::UnixSeqpacketConn as NonblockingUnixSeqpacketConn;
 use uds_fork::{UnixSeqpacketConn, UnixSeqpacketListener};
 
 #[test]
-fn seqpacket_is_supported() {
-    let path = "/tmp/seqpacket.exists.socket";
+fn seqpacket_is_supported() 
+{    
+    let path = "/tmp/seqpacket1.exists.socket";
     let _ = std::fs::remove_file(path);
     let _listener = UnixSeqpacketListener::bind(path).unwrap();
     let _conn = UnixSeqpacketConn::connect(path).unwrap();
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn seqpacket_is_supported_types() 
+{
+    use std::os::fd::IntoRawFd;
+
+    let path = "/tmp/seqpacket2.exists.socket";
+    let _ = std::fs::remove_file(path);
+    let _listener = UnixSeqpacketListener::bind(path).unwrap();
+    let conn = UnixSeqpacketConn::connect(path).unwrap().into_raw_fd();
+    
+    let _conn = unsafe { UnixSeqpacketConn::from_raw_fd(conn) };
+
     let _ = std::fs::remove_file(path);
 }
 

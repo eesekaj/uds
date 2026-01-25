@@ -3,10 +3,10 @@
 <img src="https://cdn.4neko.org/win_ev_log.webp" width="150"/>
 
 > [!IMPORTANT]  
-> I am not an original author. A [GitHub](https://github.com/tormol/uds) and [Crates](https://crates.io/crates/uds) are links to original crate.
+> I am not original author. A [GitHub](https://github.com/tormol/uds) and [Crates](https://crates.io/crates/uds) are links to original crate. This crate is forked!
 
 > [!IMPORTANT]  
-> Since author is not responding on issues at his github page, I decided to fork the crate.
+> Since an author is not responding on issues at his github page, I decided to fork the crate.
 
 A unix domain sockets Rust library that supports abstract addresses, fd-passing, SOCK_SEQPACKET sockets and more.
 
@@ -20,13 +20,22 @@ Ancillary credentials and timestamps are not yet supported.
 <details>
   <summary>Changelog</summary>
 
+* Added from OwnedFd and from RawFd and from Self to OwnedFd. Functions which performs conversion from OwnedFd to Self perform check of the socket type.
+* `NonblockingUnixSeqpacketListener` and `NonblockingUnixSeqpacketConn` is now have inside an instance of `UnixSeqpacketConn` and `UnixSeqpacketListener` respectivly which is set to non-blocking.
+* Reorganised some functions
+
+</details>
+
+<details>
+  <summary>Changelog Version 0.5.2 (2026-01-21)</summary>
+
 * Fixed compilation errors on OpenBSD
 * Fixed one test problem (related to what kernel returns)
 
 </details>
 
 <details>
-  <summary>Version 0.5.1 (2026-01-18)</summary>
+  <summary>Changelog Version 0.5.1 (2026-01-18)</summary>
 
 * Fixed compilation errors on FreeBSD.
 * ! FreeBSD 15 demonstrates strange behaviour with message trancation and empty messages which 

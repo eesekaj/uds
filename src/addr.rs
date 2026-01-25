@@ -379,14 +379,17 @@ impl UnixSocketAddr
             {
                 addr.addr.sun_path[..path.len()].copy_from_slice(as_char(path));
                 addr.len = path_offset() + path.len() as socklen_t;
-                if path.len() < capacity {
+                
+                if path.len() < capacity 
+                {
                     addr.len += 1; // for increased portability
                 }
                 
                 return Ok(addr);
             }
         }
-        from_path_inner(path.as_ref().as_os_str().as_bytes())
+
+        return from_path_inner(path.as_ref().as_os_str().as_bytes());
     }
 
     /// Returns maximum size of abstract addesses supported by `UnixSocketAddr`.
