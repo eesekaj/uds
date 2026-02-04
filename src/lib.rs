@@ -11,8 +11,9 @@
 //!
 //! File-descriptor passing and abstract socket support
 //! for stream and datagram sockets is provided via extension traits for
-//! existing types in `std::os::unix::net` and from [mio](https://github.com/tokio-rs/mio)
-//! (the latter is opt-in and must be enabled with `features=["mio_08"]` in Cargo.toml).
+//! existing types.
+//! 
+//! Also it support UnixStream for Windows i.e AF_INET SOCK_STREAM with some limitations.
 //!
 //! See README for status of operating system support and other general info.
 

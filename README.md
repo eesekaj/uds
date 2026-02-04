@@ -23,6 +23,14 @@ Ancillary credentials and timestamps are not yet supported.
 <details>
   <summary>Changelog</summary>
 
+* Fixed release date of previous version
+* Added more info and comments.
+
+</details>
+
+<details>
+  <summary>Changelog Version 0.6.0 (2026-01-17)</summary>
+
 * The crate's `addr.rs` is used as dependancy, so this crate can be used on Windows to utilize the `UnixSocketAddr`.
 * Added experimental support for unixstream in Windows i.e AF_UNIX SOCK_STREAM.
 
@@ -161,6 +169,33 @@ use uds_fork::{RecvFlags, WindowsUnixListener, WindowsUnixStream};
 
 ```
 
+## Using with MIO
+
+The MIO crate depedancy was removed because it can be implemented for the socket types of this 
+crate by the programmer.
+
+```rust ignore
+impl  event::Source  for NonblockingUnixSeqpacketConn
+{
+  fn register(&mut self,  registry: &Registry,  token: Token,  interest: Interest )
+  -> Result<(), io::Error> 
+  {
+      unix::SourceFd(&self.fd).register(registry, token, interest)
+  }
+  
+  fn reregister(&mut self,  registry: &Registry,  token: Token,  interest: Interest)
+  -> Result<(), io::Error> 
+  {
+      unix::SourceFd(&self.fd).reregister(registry, token, interest)
+  }
+  
+  fn deregister(&mut self,  registry: &Registry) -> Result<(), io::Error> 
+  {
+      unix::SourceFd(&self.fd).deregister(registry)
+  }
+}
+```
+
 ## Portability
 
 macOS doesn't support SOCK_SEQPACKET sockets, and abstract socket addresses is Linux-only, so if you don't want to bother with supporting non-portable features you are probably better off only using what std or mio provides.
@@ -170,12 +205,13 @@ Even when all operating systems you care about supports something, they might be
 On Linux file descriptors are cloned when they are sent, but macOS and the BSDs first clones them when they are received. This means that if a FD is closed before the peer receives it you have a problem.  
 Also, some OSes might return the original file descriptor without cloning it if it's received within the same process as it was sent from. (DragonFly BSD, possibly macOS and maybe FreeBSD).
 
-| | Linux | macOS | FreeBSD | OpenBSD | DragonFly BSD | NetBSD | Illumos |
-|-|-|-|-|-|-|-|-|
-| **Seqpacket** | Yes | N/A | Yes | Yes | Yes | Yes | N/A |
-| **fd-passing** | Yes | Yes | Yes | Yes | Yes | Yes | No |
-| **abstract addresses** | Yes | N/A | N/A | N/A | N/A | N/A | N/A |
-| **Tested?** | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> |
+| | Linux | macOS | FreeBSD | OpenBSD | DragonFly BSD | NetBSD | Illumos | Windows |
+|-|-|-|-|-|-|-|-|-|
+| **Seqpacket** | Yes | N/A | Yes | Yes | Yes | Yes | N/A | N/A |
+| **fd-passing** | Yes | Yes | Yes | Yes | Yes | Yes | No | No |
+| **abstract addresses** | Yes | N/A | N/A | N/A | N/A | N/A | N/A | N/A |
+| **unix_stream_win** | N/A | N/A | N/A | N/A | N/A | N/A | N/A | Yes |
+| **Tested?** | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup> | Manually<sup>\*</sup>
 
 <sup>\*</sup>: Not tested since v0.2.6. (but (cross)checked on CI.)
 
@@ -185,6 +221,7 @@ Also, some OSes might return the original file descriptor without cloning it if 
 * Android: I haven't tested on it, but I assume there are no differences from regular Linux.
 * Windows 10: While it added some unix socket features, Windows support is not a priority. (PRs are welcome though).
 * Solaris: Treated identically as Illumos. mio 0.8 doesn't support it.
+* Windows: UnixSocketAddr and WindowsUnixStream and WindowsUnixListener only!
 
 
 ## Minimum Rust version
