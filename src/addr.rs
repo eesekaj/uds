@@ -1,18 +1,26 @@
 
+#[cfg(windows)]
+use std::borrow::Cow;
 use std::
 {
-    mem, 
-    slice, 
+    ffi::{CStr, OsStr, c_char}, 
     fmt::{self, Debug, Display}, 
     hash::{Hash, Hasher}, 
+    io::{self, ErrorKind}, 
+    mem, 
     path::Path, 
-    ffi::{OsStr, CStr}, 
-    os::unix::{net, ffi::OsStrExt}, 
-    io::{self, ErrorKind}
+    ptr, 
+    slice
 };
 
+#[cfg(unix)]
+use std::os::unix::{ffi::OsStrExt, net};
 
-use libc::{sockaddr, sa_family_t, AF_UNIX, socklen_t, sockaddr_un, c_char};
+#[cfg(unix)]
+use libc::{AF_UNIX, sa_family_t, sockaddr, sockaddr_storage, sockaddr_un, socklen_t};
+
+#[cfg(windows)]
+pub use windows_sys::Win32::Networking::WinSock::{AF_UNIX, SOCKADDR_STORAGE as sockaddr_storage, socklen_t, SOCKADDR as sockaddr, SOCKADDR_UN as sockaddr_un, ADDRESS_FAMILY as sa_family_t};
 
 /// Offset of `.sun_path` in `sockaddr_un`.
 ///
@@ -64,7 +72,7 @@ const TOO_LONG_DESC: &str = "address is too long";
 /// assert!(addr.is_abstract());
 /// assert_eq!(addr.to_string(), "@abstract");
 /// ```
-#[derive(Clone,Copy)]
+#[derive(Clone, Copy)]
 pub struct UnixSocketAddr 
 {
     addr: sockaddr_un,
@@ -85,6 +93,8 @@ pub struct UnixSocketAddr
     /// `sockaddr_un`, so the possible benefit is tiny.
     len: socklen_t,
 }
+
+
 
 /// An enum representation of an unix socket address.
 ///
@@ -144,7 +154,18 @@ impl<'a> From<&'a UnixSocketAddr> for AddrName<'a>
                 slice = &slice[..slice.len()-1];
             }
 
-            AddrName::Path(Path::new(OsStr::from_bytes(as_u8(slice))))
+            #[cfg(unix)]
+            return 
+                AddrName::Path(Path::new(OsStr::from_bytes(as_u8(slice))));
+
+            // sun_path is UTF-8
+            #[cfg(windows)]
+            {
+                //let utf8_valid = str::from_utf8(as_u8(slice)).unwrap();
+
+                return 
+                    AddrName::Path(Path::new(unsafe{ OsStr::from_encoded_bytes_unchecked(as_u8(slice)) } ))
+            }
         }
     }
 }
@@ -159,12 +180,21 @@ impl Debug for UnixSocketAddr
         struct Unnamed;
         #[derive(Debug)]
         struct Path<'a>(&'a std::path::Path);
+        #[cfg(unix)]
         #[derive(Debug)]
         struct Abstract<'a>(&'a OsStr);
 
+        #[cfg(windows)]
+        #[derive(Debug)]
+        struct Abstract<'a>(Cow<'a, str>);
+
         // doesn't live long enough if created inside match
         let mut path_type = Path("".as_ref());
+        #[cfg(unix)]
         let mut abstract_type = Abstract(OsStr::new(""));
+
+        #[cfg(windows)]
+        let mut abstract_type = Abstract(Cow::Borrowed(""));
 
         let variant: &dyn Debug = 
             match self.into() 
@@ -178,7 +208,17 @@ impl Debug for UnixSocketAddr
                 },
                 UnixSocketAddrRef::Abstract(name) => 
                 {
-                    abstract_type.0 = OsStr::from_bytes(name);
+                    #[cfg(unix)]
+                    {
+                        abstract_type.0 = OsStr::from_bytes(name);
+                    }
+
+                    #[cfg(windows)]
+                    {
+                        let utf8_valid = String::from_utf8_lossy(name);
+                        abstract_type.0 = utf8_valid;
+                    }
+                    
                     &abstract_type
                 },
             };
@@ -196,8 +236,18 @@ impl Display for UnixSocketAddr
                 fmtr.write_str("unnamed"),
             UnixSocketAddrRef::Path(path) => 
                 write!(fmtr, "{}", path.display()), // TODO check that display() doesn't print \n as-is
+            #[cfg(unix)]
             UnixSocketAddrRef::Abstract(name) => 
-                write!(fmtr, "@{}", OsStr::from_bytes(name).to_string_lossy()), // FIXME escape to sane characters
+                {
+                    write!(fmtr, "@{}", OsStr::from_bytes(name).to_string_lossy()) // FIXME escape to sane characters
+                }
+            #[cfg(windows)]
+            UnixSocketAddrRef::Abstract(name) =>     
+                {
+                    let utf8_valid = String::from_utf8_lossy(name);
+
+                    write!(fmtr, "@{}", utf8_valid) // FIXME escape to sane characters
+                }
         }
     }
 }
@@ -258,14 +308,78 @@ impl UnixSocketAddr
             {
                 Some(&b'@') | Some(&b'\0') => 
                     UnixSocketAddr::from_abstract(&addr[1..]),
+                #[cfg(unix)]
                 Some(_) => 
                     UnixSocketAddr::from_path(Path::new(OsStr::from_bytes(addr))),
+                #[cfg(windows)]
+                Some(_) => 
+                {
+                    let utf8_valid = 
+                        str::from_utf8(addr)
+                            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e)
+                        )?;
+
+                    UnixSocketAddr::from_path(Path::new(utf8_valid))
+                },
                 None => 
                     Ok(UnixSocketAddr::new_unspecified()),
             }
         }
 
         return parse(addr.as_ref());
+    }
+
+    #[cfg(windows)]
+    /// Allows creating abstract, path or unspecified address based on an
+    /// user-supplied string for Windows UTF-16 path.
+    ///
+    /// A leading `'@'` or `'\0'` signifies an abstract address,
+    /// an empty slice is taken as the unnamed address, and anything else is a
+    /// path address.  
+    /// If a relative path address starts with `@`, escape it by prepending
+    /// `"./"`.
+    /// To avoid surprises, abstract addresses will be detected regargsless of
+    /// wheither the OS supports them, and result in an error if it doesn't.
+    ///
+    /// # Errors
+    ///
+    /// * A path or abstract address is too long.
+    /// * A path address contains `'\0'`.
+    /// * An abstract name was supplied on an OS that doesn't support them.
+    pub 
+    fn new_windows<A: AsRef<[u16]>+?Sized>(addr_v: &A) -> Result<Self, io::Error> 
+    {
+        use std::{ffi::OsString, os::windows::ffi::OsStringExt};
+        let addr = addr_v.as_ref();
+       
+        let first = 
+            if addr.len() > 0
+            {
+                Some(OsString::from_wide(&addr[0..1]))
+            }
+            else
+            {
+                None
+            };
+
+        match first.as_ref().map(|v| v.as_encoded_bytes())
+        {
+            Some(b"@") | Some(b"\0") => 
+            {
+                let osstr = OsString::from_wide(addr);
+
+                UnixSocketAddr::from_abstract(&osstr.as_encoded_bytes()[1..])
+            },
+            Some(_) => 
+            {
+                
+                let osstr = OsString::from_wide(addr);
+
+                UnixSocketAddr::from_path(Path::new( &osstr ))
+            },
+            None => 
+                Ok(UnixSocketAddr::new_unspecified()),
+        }
     }
 
     /// Creates an unnamed address, which on Linux can be used for auto-bind.
@@ -279,7 +393,7 @@ impl UnixSocketAddr
     /// # Examples
     ///
     #[cfg_attr(any(target_os="linux", target_os="android"), doc="```")]
-    #[cfg_attr(not(any(target_os="linux", target_os="android")), doc="```no_run")]
+    #[cfg_attr(not(any(target_os="linux", target_os="android")), doc="```ignore")]
     /// # use uds_fork::{UnixSocketAddr, UnixDatagramExt};
     /// # use std::os::unix::net::UnixDatagram;
     /// let addr = UnixSocketAddr::new_unspecified();
@@ -389,7 +503,11 @@ impl UnixSocketAddr
             }
         }
 
+        #[cfg(unix)]
         return from_path_inner(path.as_ref().as_os_str().as_bytes());
+
+        #[cfg(windows)]
+        return from_path_inner(path.as_ref().as_os_str().as_encoded_bytes());
     }
 
     /// Returns maximum size of abstract addesses supported by `UnixSocketAddr`.
@@ -474,6 +592,7 @@ impl UnixSocketAddr
     /// if the `std` `SocketAddr` represents an abstract address,
     /// as it provides no method for viewing abstract addresses.
     /// (other than parsing its `Debug` output, anyway.)
+    #[cfg(unix)]
     pub 
     fn from_std(addr: net::SocketAddr) -> Option<Self> 
     {
@@ -563,10 +682,25 @@ impl UnixSocketAddr
     }
 
     /// Checks whether the address is a path that begins with '/'.
+    #[cfg(unix)]
     #[inline]
-    pub fn is_absolute_path(&self) -> bool 
+    pub 
+    fn is_absolute_path(&self) -> bool 
     {
         self.len > path_offset()  &&  self.addr.sun_path[0] as u8 == b'/'
+    }
+
+    /// Checks whether the address is a path that begins with '/' or "C:\".
+    #[cfg(windows)]
+    #[inline]
+    pub 
+    fn is_absolute_path(&self) -> bool 
+    {
+        self.len > path_offset()  &&  
+            (
+                self.addr.sun_path[0] as u8 == b'/' || 
+                (self.addr.sun_path[0] as u8 as char).is_ascii_alphabetic() == true
+            )
     }
 
     /// Checks whether the address is a path that doesn't begin with '/'.
@@ -641,7 +775,8 @@ impl UnixSocketAddr
     ///
     /// # Examples
     ///
-    /// ```
+    #[cfg_attr(any(target_os="linux", target_os="android"), doc="```")]
+    #[cfg_attr(not(any(target_os="linux", target_os="android")), doc="```ignore")]
     /// use uds_fork::{UnixDatagramExt, UnixSocketAddr, UnixSocketAddrRef};
     /// use std::os::unix::net::UnixDatagram;
     /// use std::path::Path;
@@ -749,7 +884,8 @@ impl UnixSocketAddr
     ///
     /// A normal path-based address:
     ///
-    /// ```
+    #[cfg_attr(any(target_vendor="apple", target_os="openbsd"), doc="```")]
+    #[cfg_attr(not(any(target_vendor="apple", target_os="openbsd")), doc="```ignore")]
     /// # use std::path::Path;
     /// # use std::os::unix::net::UnixDatagram;
     /// # use uds_fork::{UnixSocketAddr, UnixDatagramExt};
@@ -774,7 +910,7 @@ impl UnixSocketAddr
     /// Unnamed address on macOS, OpenBSD and maybe others:
     ///
     #[cfg_attr(any(target_vendor="apple", target_os="openbsd"), doc="```")]
-    #[cfg_attr(not(any(target_vendor="apple", target_os="openbsd")), doc="```no_run")]
+    #[cfg_attr(not(any(target_vendor="apple", target_os="openbsd")), doc="```ignore")]
     /// # use std::os::unix::net::UnixDatagram;
     /// # use uds_fork::{UnixSocketAddr, UnixDatagramExt};
     /// let socket = UnixDatagram::unbound().expect("create datagram socket");
@@ -859,6 +995,75 @@ impl UnixSocketAddr
             }
             
             return Ok((ret, addr));
+        }
+    }
+
+    pub unsafe 
+    fn from_ref(addr: &sockaddr,  len: socklen_t) -> Result<Self, io::Error> 
+    {
+        let mut copy = Self::new_unspecified();
+
+        if len < path_offset() 
+        {
+            return Err(io::Error::new(ErrorKind::InvalidInput, "address length is too short"));
+        } 
+        else if len > mem::size_of::<sockaddr_un>() as socklen_t 
+        {
+            return Err(io::Error::new(ErrorKind::InvalidInput, TOO_LONG_DESC));
+        } 
+        else if addr.sa_family != AF_UNIX as sa_family_t 
+        {
+            return Err(io::Error::new(ErrorKind::InvalidData, "not an unix socket address"));
+        } 
+        else 
+        {
+            let addr = addr as *const sockaddr  as *const sockaddr_un;
+            let sun_path_ptr = unsafe { (&*addr).sun_path.as_ptr() };
+            let path_len = (len - path_offset()) as usize;
+            let sun_path = unsafe { slice::from_raw_parts(sun_path_ptr, path_len) };
+            
+            copy.addr.sun_path[..path_len].copy_from_slice(sun_path);
+            copy.len = len;
+            
+            return Ok(copy);
+        }
+    }
+
+    /// Creates an `UnixSocketAddr` from a pointer to a generic [libc::sockaddr_storage] and
+    /// a length.
+    ///
+    /// # Safety
+    ///
+    /// * `len` must not be greater than the size of the memory `addr` points to.
+    /// * `addr` must point to valid memory if `len` is greater than zero, or be NULL.
+    pub unsafe 
+    fn from_sockaddr_storage(addr: &sockaddr_storage,  len: socklen_t) -> Result<Self, io::Error> 
+    {
+        let mut copy = Self::new_unspecified();
+
+        if len < path_offset() 
+        {
+            return Err(io::Error::new(ErrorKind::InvalidInput, "address length is too short"));
+        } 
+        else if len > mem::size_of::<sockaddr_un>() as socklen_t 
+        {
+            return Err(io::Error::new(ErrorKind::InvalidInput, TOO_LONG_DESC));
+        } 
+        else if addr.ss_family != AF_UNIX as sa_family_t 
+        {
+            return Err(io::Error::new(ErrorKind::InvalidData, "not an unix socket address"));
+        } 
+        else 
+        {
+            let addr = addr as *const sockaddr_storage as *const sockaddr_un;
+            let sun_path_ptr = unsafe { (&*addr).sun_path.as_ptr() };
+            let path_len = (len - path_offset()) as usize;
+            let sun_path = unsafe { slice::from_raw_parts(sun_path_ptr, path_len) };
+            
+            copy.addr.sun_path[..path_len].copy_from_slice(sun_path);
+            copy.len = len;
+            
+            return Ok(copy);
         }
     }
 
@@ -980,6 +1185,13 @@ impl UnixSocketAddr
         (unsafe { &mut*(&mut self.addr as *mut sockaddr_un as *mut sockaddr) }, &mut self.len)
     }
 
+    pub unsafe 
+    fn as_raw_ptr_general(&self) -> (*const sockaddr, socklen_t) 
+    {
+        // SAFETY: sockaddr is a super-type of sockaddr_un.
+        (&self.addr as *const sockaddr_un as *const sockaddr, self.len)
+    }
+
     /// Returns mutable references to the inner `struct sockaddr_un` and length.
     ///
     /// Pathname addresses are not guaranteed to be NUL-terminated on most OSes:
@@ -1001,17 +1213,20 @@ impl UnixSocketAddr
 
 impl Default for UnixSocketAddr 
 {
-    fn default() -> Self {
+    fn default() -> Self 
+    {
         Self::new_unspecified()
     }
 }
 
 impl PartialEq for UnixSocketAddr 
 {
-    fn eq(&self,  other: &Self) -> bool {
+    fn eq(&self, other: &Self) -> bool 
+    {
         self.as_ref() == other.as_ref()
     }
 }
+
 impl Eq for UnixSocketAddr {}
 
 impl Hash for UnixSocketAddr 
@@ -1028,8 +1243,12 @@ impl PartialEq<[u8]> for UnixSocketAddr
     {
         match (self.as_ref(), unescaped.first()) 
         {
+            #[cfg(unix)]
             (UnixSocketAddrRef::Path(path), Some(_)) => 
                 path.as_os_str().as_bytes() == unescaped,
+            #[cfg(windows)]
+            (UnixSocketAddrRef::Path(path), Some(_)) => 
+                path.as_os_str().as_encoded_bytes() == unescaped,
             (UnixSocketAddrRef::Abstract(name), Some(b'\0')) => 
                 name == &unescaped[1..],
             (UnixSocketAddrRef::Unnamed, None) => 
@@ -1046,3 +1265,4 @@ impl PartialEq<UnixSocketAddr> for [u8]
         addr == self
     }
 }
+

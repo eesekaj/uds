@@ -8,7 +8,9 @@
 > [!IMPORTANT]  
 > Since an author is not responding on issues at his github page, I decided to fork the crate.
 
-A unix domain sockets Rust library that supports abstract addresses, fd-passing, SOCK_SEQPACKET sockets and more.
+A unix domain sockets Rust library that supports abstract addresses, fd-passing, SOCK_SEQPACKET sockets SOCK_STREAM for the `Windows` and more.
+
+A `AF_UNIX` `SOCK_STREAM` is implemented for Windows in windows_unixstream.rs as an experiment. WSA veriosn 2.2 is required.
 
 When possible, features are implemented via extension traits for [`std::os::unix::net`](https://doc.rust-lang.org/std/os/unix/net/index.html) types (and optionally [mio](https://crates.io/crates/mio)'s uds types) instead of exposing new structs.
 The only new socket structs this crate exposes are those for seqpacket sockets.
@@ -20,6 +22,14 @@ Ancillary credentials and timestamps are not yet supported.
 
 <details>
   <summary>Changelog</summary>
+
+* The crate's `addr.rs` is used as dependancy, so this crate can be used on Windows to utilize the `UnixSocketAddr`.
+* Added experimental support for unixstream in Windows i.e AF_UNIX SOCK_STREAM.
+
+</details>
+
+<details>
+  <summary>Changelog Version 0.5.4 (2026-01-26)</summary>
 
 * Added missing implementation of `Deref` for `NonblockingUnixSeqpacketListener`.
 * Fixed `address already in use` problems in docs.
@@ -61,9 +71,9 @@ is not compatiable Linux and FreeBSD 14.
 * Removed MIO and Tokio. Use AsyncFD and implement MIO for the type youself. (Maybe MIO will be readded later).
 </details>
 
-## Example
+## Examples
 
-(only runs sucessfully on Linux)
+### (only runs sucessfully on Linux)
 
 ```rust
 extern crate uds_fork;
@@ -98,6 +108,57 @@ if creds.euid() == 0 {
 } else {
     server_side.send(b"go away!\n").expect("send response");
 }
+```
+
+### (only runs sucessfully on Windows)
+
+```rust ignore
+extern crate uds_fork;
+use uds_fork::{RecvFlags, WindowsUnixListener, WindowsUnixStream};
+
+  let path = "server3.sock";
+  rem_sock(path);
+
+  let wul = WindowsUnixListener::bind(path).unwrap();
+
+  let client = WindowsUnixStream::connect(path).unwrap();
+
+  let (accp_client, rem_addr) = wul.accept_unix_addr().unwrap();
+
+  println!("accepted connection: {}", rem_addr);
+  assert_eq!(rem_addr.to_string().as_str(), "unnamed");
+
+  let sa_fam = uds_fork::get_socket_family(&accp_client).unwrap();
+  let sa_type = uds_fork::get_socket_type(&accp_client).unwrap();
+  assert_eq!(sa_fam, AF_UNIX);
+  assert_eq!(sa_type, SOCK_STREAM);
+
+  println!("{} {}", sa_fam, sa_type);
+
+  let data: [u8; 4] = [1,2,3,4];
+
+  let srv_n = client.send(&data).unwrap();
+  assert_eq!(srv_n, data.len());
+
+  let mut rcv_data = [0_u8; 10];
+  let rcv_n = accp_client.recv(&mut rcv_data).unwrap();
+  assert_eq!(srv_n, rcv_n);
+  assert_eq!(&data, &rcv_data[..srv_n]);
+
+
+  // accp_client -> client
+    let data: [u8; 4] = [5,6,7,8];
+
+  let srv_n = accp_client.send(&data).unwrap();
+  assert_eq!(srv_n, data.len());
+
+  let mut rcv_data = [0_u8; 10];
+  let rcv_n = client.recv(&mut rcv_data).unwrap();
+  assert_eq!(srv_n, rcv_n);
+  assert_eq!(&data, &rcv_data[..srv_n]);
+
+  rem_sock(path);
+
 ```
 
 ## Portability

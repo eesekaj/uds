@@ -1,4 +1,4 @@
-#![cfg(not(target_vendor="apple"))]
+#![cfg(all(not(target_vendor="apple"), target_family = "unix"))]
 
 use std::
 {

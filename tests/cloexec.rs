@@ -1,3 +1,5 @@
+#![cfg(target_family = "unix")]
+
 extern crate uds_fork;
 
 use std::ffi::OsStr;

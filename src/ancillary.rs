@@ -132,7 +132,7 @@ fn send_ancillary<FD: AsFd>(
         //struct AncillaryFixedBuf(/*for alignment*/[cmsghdr; 0], );
         //const anc_cap = AncillaryBuf::MAX_STACK_CAPACITY / (mem::size_of::<cmsghdr>() + mem::size_of::<OwnedFd>());
 
-        let ancillary_buf: [u8; unsafe { CMSG_SPACE(60) as usize }] = 
+        let ancillary_buf = 
             [0_u8; unsafe { CMSG_SPACE(60) as usize}];
         
         //AncillaryFixedBuf([], [mem::zeroed(); AncillaryBuf::MAX_STACK_CAPACITY / mem::size_of::<cmsghdr>()]);

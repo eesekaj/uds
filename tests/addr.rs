@@ -1,16 +1,25 @@
+#![cfg(target_family = "unix")]
 extern crate uds_fork;
+
+
 extern crate libc;
 
-use std::os::unix::net::{UnixListener, UnixStream, UnixDatagram};
+use std::os::unix::net::{UnixDatagram, UnixListener, UnixStream};
 use std::io::ErrorKind::*;
 use std::io::{IoSlice, IoSliceMut};
 use std::fs::remove_file;
 use std::path::Path;
-use std::mem::size_of;
+use std::mem::{self, size_of};
+
 
 use libc::{sockaddr, sockaddr_un, socklen_t};
 
+//#[cfg(target_family = "windows")]
+
+
 use uds_fork::{UnixSocketAddr, UnixSocketAddrRef};
+
+
 use uds_fork::{UnixListenerExt, UnixStreamExt, UnixDatagramExt};
 
 #[cfg(any(target_os="linux", target_os="android"))]
@@ -360,43 +369,186 @@ fn datagram_peek_vectored()
 }
 
 #[test]
-fn from_raw_path() {
+fn from_raw_path() 
+{
     let path_addr = UnixSocketAddr::from_path("/tmp/path.sock").unwrap();
-    let a = unsafe {
+    let a = 
+    unsafe 
+    {
         let (raw_addr, raw_len) = path_addr.as_raw();
         UnixSocketAddr::from_raw(raw_addr as *const sockaddr_un as *const sockaddr, raw_len)
-    }.expect("from_raw() accepts from_path()");
+    }
+    .expect("from_raw() accepts from_path()");
+
     assert_eq!(a, path_addr);
     assert!(a.is_path());
 }
 
 #[test]
-fn from_raw_max_len_path() {
+fn from_ref_path() 
+{
+    
+    let path_addr = UnixSocketAddr::from_path("/tmp/path.sock").unwrap();
+    let a = 
+    unsafe 
+    {
+        let (raw_addr, raw_len) = path_addr.as_raw();
+        let ref_addr: &libc::sockaddr = mem::transmute(raw_addr);
+
+        UnixSocketAddr::from_ref(ref_addr, raw_len)
+    }
+    .expect("from_raw() accepts from_path()");
+    
+    assert_eq!(a, path_addr);
+    assert!(a.is_path());
+}
+
+#[test]
+fn from_sockaddr_storage_path() 
+{
+    
+    let path_addr = UnixSocketAddr::from_path("/tmp/path.sock").unwrap();
+    let a = 
+    unsafe 
+    {
+        let (raw_addr, raw_len) = path_addr.as_raw();
+        let ref_addr: &libc::sockaddr_storage = mem::transmute(raw_addr);
+
+        UnixSocketAddr::from_sockaddr_storage(ref_addr, raw_len)
+    }
+    .expect("from_raw() accepts from_path()");
+    
+    assert_eq!(a, path_addr);
+    assert!(a.is_path());
+}
+
+#[test]
+fn from_raw_max_len_path() 
+{
     let path = "R".repeat(UnixSocketAddr::max_path_len());
     let path_addr = UnixSocketAddr::from_path(path.as_str()).unwrap();
-    let a = unsafe {
+    let a = 
+    unsafe 
+    {
         let (raw_addr, raw_len) = path_addr.as_raw();
         UnixSocketAddr::from_raw(raw_addr as *const sockaddr_un as *const sockaddr, raw_len)
-    }.expect("from_path() is valid");
+    }
+    .expect("from_path() is valid");
+
     assert_eq!(a, path_addr);
     assert!(a.is_path());
 }
 
 #[test]
-fn from_raw_too_long_path() {
+fn from_ref_max_len_path() 
+{
+    let path = "R".repeat(UnixSocketAddr::max_path_len());
+    let path_addr = UnixSocketAddr::from_path(path.as_str()).unwrap();
+    let a = 
+    unsafe 
+    {
+        let (raw_addr, raw_len) = path_addr.as_raw();
+        let ref_addr: &libc::sockaddr = mem::transmute(raw_addr);
+
+        UnixSocketAddr::from_ref(ref_addr, raw_len)
+    }
+    .expect("from_path() is valid");
+
+    assert_eq!(a, path_addr);
+    assert!(a.is_path());
+}
+
+#[test]
+fn from_sockaddr_storage_max_len_path() 
+{
+    let path = "R".repeat(UnixSocketAddr::max_path_len());
+    let path_addr = UnixSocketAddr::from_path(path.as_str()).unwrap();
+    let a = 
+    unsafe 
+    {
+        let (raw_addr, raw_len) = path_addr.as_raw();
+        let ref_addr: &libc::sockaddr_storage = mem::transmute(raw_addr);
+
+        UnixSocketAddr::from_sockaddr_storage(ref_addr, raw_len)
+    }
+    .expect("from_path() is valid");
+
+    assert_eq!(a, path_addr);
+    assert!(a.is_path());
+}
+
+#[test]
+fn from_raw_too_long_path() 
+{
     #[repr(C)]
-    struct TooLong {
+    struct TooLong 
+    {
         fam: libc::sa_family_t,
         path: [u8; 300],
     }
-    let path_addr = TooLong {
-        fam: libc::AF_UNIX as libc::sa_family_t,
-        path: [b'o'; 300],
-    };
-    unsafe {
+    let path_addr = 
+        TooLong 
+        {
+            fam: libc::AF_UNIX as libc::sa_family_t,
+            path: [b'o'; 300],
+        };
+
+    unsafe 
+    {
         let raw_addr = &path_addr as *const TooLong as *const sockaddr;
         UnixSocketAddr::from_raw(raw_addr, size_of::<TooLong>() as _)
-    }.expect_err("too long");
+    }
+    .expect_err("too long");
+}
+
+#[test]
+fn from_ref_too_long_path() 
+{
+    #[repr(C)]
+    struct TooLong 
+    {
+        fam: libc::sa_family_t,
+        path: [u8; 300],
+    }
+    let path_addr = 
+        TooLong 
+        {
+            fam: libc::AF_UNIX as libc::sa_family_t,
+            path: [b'o'; 300],
+        };
+
+    unsafe 
+    {
+        let ref_path: &libc::sockaddr = mem::transmute(&path_addr);
+
+        UnixSocketAddr::from_ref(ref_path, size_of::<TooLong>() as _)
+    }
+    .expect_err("too long");
+}
+
+#[test]
+fn from_sockaddr_storage_too_long_path() 
+{
+    #[repr(C)]
+    struct TooLong 
+    {
+        fam: libc::sa_family_t,
+        path: [u8; 300],
+    }
+    let path_addr = 
+        TooLong 
+        {
+            fam: libc::AF_UNIX as libc::sa_family_t,
+            path: [b'o'; 300],
+        };
+
+    unsafe 
+    {
+        let ref_path: &libc::sockaddr_storage = mem::transmute(&path_addr);
+
+        UnixSocketAddr::from_sockaddr_storage(ref_path, size_of::<TooLong>() as _)
+    }
+    .expect_err("too long");
 }
 
 #[test]

@@ -16,10 +16,10 @@
 //!
 //! See README for status of operating system support and other general info.
 
-#![cfg(unix)] // compile as empty crate on windows
+//#![cfg(unix)] // compile as empty crate on windows
 
 // Too many features unavailable on solarish to bother cfg()ing individually.
-#![cfg_attr(any(target_os="illumos", target_os="solaris"), allow(unused))]
+#![cfg_attr(any(target_os="illumos", target_os="solaris", target_os="windows"), allow(unused))]
 
 #![allow(
     clippy::cast_lossless, // improves portability when values are limited by the OS anyway
@@ -33,7 +33,11 @@
     // more lints are disabled inside ancillary.rs and credentials.rs
 )]
 
+#[cfg(target_family = "unix")]
 extern crate libc;
+
+#[cfg(target_family = "windows")]
+extern crate windows_sys;
 
 /// Get errno as io::Error on -1.
 macro_rules! cvt {($syscall:expr) => {
@@ -63,18 +67,48 @@ macro_rules! cvt_r {($syscall:expr) => {
     }
 }}
 
+#[cfg(target_family = "windows")]
+mod windows_unixstream;
+
 mod addr;
+
+#[cfg(target_family = "unix")]
 mod credentials;
+
+#[cfg(target_family = "unix")]
 mod helpers;
+
+#[cfg(target_family = "unix")]
 mod ancillary;
+
+#[cfg(target_family = "unix")]
 mod traits;
+
+#[cfg(target_family = "unix")]
 mod seqpacket;
 
+
+pub(crate) const LISTEN_BACKLOG: std::ffi::c_int = 128;//10; // what std uses, I think
+
+
 pub use addr::{UnixSocketAddr, UnixSocketAddrRef, AddrName};
+
+#[cfg(windows)]
+pub use windows_unixstream::{WindowsUnixListener, WindowsUnixStream, RecvFlags};
+
+#[cfg(windows)]
+pub use windows_unixstream::{get_socket_family, get_socket_type};
+
+#[cfg(target_family = "unix")]
 pub use traits::{UnixListenerExt, UnixStreamExt, UnixDatagramExt};
+
+#[cfg(target_family = "unix")]
 pub use seqpacket::{UnixSeqpacketListener, UnixSeqpacketConn};
+
+#[cfg(target_family = "unix")]
 pub use credentials::ConnCredentials;
 
+#[cfg(target_family = "unix")]
 pub mod nonblocking {
     pub use crate::seqpacket::NonblockingUnixSeqpacketListener as UnixSeqpacketListener;
     pub use crate::seqpacket::NonblockingUnixSeqpacketConn as UnixSeqpacketConn;

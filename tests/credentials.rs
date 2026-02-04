@@ -1,3 +1,4 @@
+#![cfg(target_family = "unix")]
 #![allow(unused)] // when not applicable, tests should still compile
 
 use std::os::unix::net::{UnixListener, UnixStream, UnixDatagram};

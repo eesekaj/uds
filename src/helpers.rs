@@ -29,11 +29,11 @@ use libc::{accept4, ENOSYS};
 #[cfg(target_vendor="apple")]
 use libc::SO_NOSIGPIPE;
 
-use crate::{addr::*};
+use crate::{LISTEN_BACKLOG, addr::*};
 
 
 
-const LISTEN_BACKLOG: c_int = 10; // what std uses, I think
+
 
 
 

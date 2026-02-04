@@ -1,3 +1,8 @@
+Version 0.6.0 (2026-02-03)
+==========================
+* The crate's `addr.rs` is used as dependancy, so this crate can be used on Windows to utilize the `UnixSocketAddr`.
+* Added experimental support for unixstream in Windows i.e AF_UNIX SOCK_STREAM.
+
 Version 0.5.4 (2026-01-26)
 ==========================
 * Added missing implementation of `Deref` for `NonblockingUnixSeqpacketListener`.

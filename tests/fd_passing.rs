@@ -1,4 +1,5 @@
 #![cfg_attr(any(target_os="illumos", target_os="solaris"), allow(unused))]
+#![cfg(target_family = "unix")]
 
 extern crate libc;
 extern crate uds_fork;
