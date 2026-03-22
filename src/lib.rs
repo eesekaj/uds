@@ -34,6 +34,12 @@
     // more lints are disabled inside ancillary.rs and credentials.rs
 )]
 
+#[cfg(feature="mio")]
+pub extern crate mio;
+
+#[cfg(feature="xio-rs")]
+pub extern crate xio_rs;
+
 #[cfg(target_family = "unix")]
 extern crate libc;
 

@@ -1,19 +1,24 @@
 
 use std::
 {
-    cmp::min, ffi::{c_int, c_void}, io::{self, ErrorKind}, mem::{self, MaybeUninit}, 
-    os::windows::io::{AsRawSocket, AsSocket, BorrowedSocket, FromRawSocket, IntoRawSocket, OwnedSocket, RawSocket}, 
-    path::Path, ptr, sync::{LazyLock, OnceLock}
+    cmp::min, 
+    ffi::{c_int, c_void}, 
+    io::{self, ErrorKind}, 
+    mem::{self, MaybeUninit}, 
+    os::windows::io::
+    {
+        AsRawSocket, AsSocket, BorrowedSocket, FromRawSocket, IntoRawSocket, OwnedSocket, RawSocket
+    }, 
+    path::Path, 
+    ptr, 
+    sync::{LazyLock, OnceLock}
 };
 
 use windows_sys::
 {
     Win32::Networking::WinSock::
     {
-        AF_UNIX, FIONBIO, INVALID_SOCKET, MSG_TRUNC, SO_ERROR, SO_TYPE, SOCK_STREAM, 
-        SOCKADDR as sockaddr, SOCKET_ERROR, SOL_SOCKET, WSADATA, WSAEMSGSIZE, WSAESHUTDOWN, 
-        WSARecv, WSASend, WSAStartup, accept, bind, connect, getpeername, getsockname, 
-        getsockopt, ioctlsocket, listen, recv, send, socket, socklen_t
+        AF_UNIX, FIONBIO, INVALID_SOCKET, MSG_TRUNC, SO_ERROR, SO_TYPE, SOCK_STREAM, SOCKADDR as sockaddr, SOCKET_ERROR, SOL_SOCKET, WSACleanup, WSADATA, WSAEMSGSIZE, WSAESHUTDOWN, WSARecv, WSASend, WSAStartup, accept, bind, connect, getpeername, getsockname, getsockopt, ioctlsocket, listen, recv, send, socket, socklen_t
     }, 
     core::PCSTR
 };
@@ -341,7 +346,21 @@ fn send_vectored<S: AsRawSocket>(socket: &S, bufs: &[io::IoSlice<'_>], flags: c_
     return Ok( nsent as usize);
 }
 
-static WSA_STARTUP: LazyLock<()> = 
+#[derive(Debug)]
+struct WsaLazyThing;
+
+impl Drop for WsaLazyThing
+{
+    fn drop(&mut self) 
+    {
+        unsafe
+        {
+            WSACleanup();
+        }
+    }
+}
+
+static WSA_STARTUP: LazyLock<WsaLazyThing> = 
     LazyLock::new(
         ||
         {
@@ -353,6 +372,8 @@ static WSA_STARTUP: LazyLock<()> =
             {
                 panic!("WSAStartup error: {}", io::Error::last_os_error());
             }
+
+            WsaLazyThing
         }
     );
 
@@ -479,6 +500,34 @@ impl io::Read for WindowsUnixStream
     fn read_vectored(&mut self, bufs: &mut [io::IoSliceMut<'_>]) -> io::Result<usize> 
     {
         self.recv_vectored(bufs).map(|(n, _)| n)
+    }
+}
+
+#[cfg(feature = "xio-rs")]
+pub mod xio_unix_stream_enabled
+{
+    use xio_rs::{EsInterfaceRegistry, XioChannel, XioEventPipe, XioEventUid, XioResult, event_registry::XioRegistry};
+
+    use super::WindowsUnixStream;
+
+    impl<ESSR: EsInterfaceRegistry> XioEventPipe<ESSR, Self> for WindowsUnixStream
+    {
+        fn connect_event_pipe(&mut self, ess: &XioRegistry<ESSR>, ev_uid: XioEventUid, channel: XioChannel) -> XioResult<()> 
+        {
+            self.set_nonblocking(true)?;
+
+            ess.get_ev_sys().en_register(&self.sock, ev_uid, channel)
+        }
+    
+        fn modify_event_pipe(&mut self, ess: &XioRegistry<ESSR>, ev_uid: XioEventUid, channel: XioChannel) -> XioResult<()> 
+        {
+            ess.get_ev_sys().modify(&self.sock, ev_uid, channel)
+        }
+    
+        fn disconnect_event_pipe(&mut self, ess: &XioRegistry<ESSR>) -> XioResult<()> 
+        {
+            ess.get_ev_sys().de_register(&self.sock)
+        }
     }
 }
 
@@ -691,6 +740,34 @@ impl IntoRawSocket for WindowsUnixListener
     fn into_raw_socket(self) -> RawSocket 
     {
         return self.sock.into_raw_socket();
+    }
+}
+
+#[cfg(feature = "xio-rs")]
+pub mod xio_listener_enabled
+{
+    use xio_rs::{EsInterfaceRegistry, XioChannel, XioEventPipe, XioEventUid, XioResult, event_registry::XioRegistry};
+
+    use super::WindowsUnixListener;
+
+    impl<ESSR: EsInterfaceRegistry> XioEventPipe<ESSR, Self> for WindowsUnixListener
+    {
+        fn connect_event_pipe(&mut self, ess: &XioRegistry<ESSR>, ev_uid: XioEventUid, channel: XioChannel) -> XioResult<()> 
+        {
+            self.set_nonblocking(true)?;
+
+            ess.get_ev_sys().en_register(&self.sock, ev_uid, channel)
+        }
+    
+        fn modify_event_pipe(&mut self, ess: &XioRegistry<ESSR>, ev_uid: XioEventUid, channel: XioChannel) -> XioResult<()> 
+        {
+            ess.get_ev_sys().modify(&self.sock, ev_uid, channel)
+        }
+    
+        fn disconnect_event_pipe(&mut self, ess: &XioRegistry<ESSR>) -> XioResult<()> 
+        {
+            ess.get_ev_sys().de_register(&self.sock)
+        }
     }
 }
 

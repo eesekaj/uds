@@ -90,6 +90,27 @@ impl UnixStreamExt for UnixStream
     }
 }
 
+#[cfg(feature = "mio")]
+impl UnixStreamExt for mio::net::UnixStream 
+{
+    fn connect_to_unix_addr(addr: &UnixSocketAddr) -> Result<Self, io::Error> 
+    {
+        let socket = Socket::<SocketStream>::new(true)?;
+        socket.set_unix_peer_addr(addr)?;
+
+        return Ok(Self::from( <Socket<SocketStream> as Into<OwnedFd>>::into(socket)));
+    }
+
+    fn connect_from_to_unix_addr(from: &UnixSocketAddr,  to: &UnixSocketAddr) -> Result<Self, io::Error> 
+    {
+        let socket = Socket::<SocketStream>::new(true)?;
+        socket.set_unix_local_addr(from)?;
+        socket.set_unix_peer_addr(to)?;
+
+        return Ok(Self::from( <Socket<SocketStream> as Into<OwnedFd>>::into(socket)));
+    }
+}
+
 /// Extension trait for using [`UnixSocketAddr`](struct.UnixSocketAddr.html) with `UnixListener` types.
 pub trait UnixListenerExt: AsFd + AsRawFd + FromRawFd 
 {
@@ -133,6 +154,34 @@ impl UnixListenerExt for UnixListener
                 Self::Conn::from(<Socket<SocketStream> as Into<OwnedFd>>::into(socket));
         
         return Ok((conn, addr));
+    }
+}
+
+
+#[cfg(feature = "mio")]
+impl UnixListenerExt for mio::net::UnixListener 
+{
+    type Conn = mio::net::UnixStream;
+
+    fn bind_unix_addr(on: &UnixSocketAddr) -> Result<Self, io::Error> 
+    {
+        let socket = Socket::<SocketStream>::new(true)?;
+        socket.set_unix_local_addr(on)?;
+
+        socket.start_listening()?;
+
+        return 
+            Ok(Self::from( <Socket<SocketStream> as Into<OwnedFd>>::into(socket)));
+    }
+
+    fn accept_unix_addr(&self) -> Result<(Self::Conn, UnixSocketAddr), io::Error> 
+    {
+        let (socket, addr) = Socket::<SocketStream>::accept_from(self, true)?;
+    
+        let conn = 
+                Self::Conn::from(<Socket<SocketStream> as Into<OwnedFd>>::into(socket));
+
+        Ok((conn, addr))
     }
 }
 
@@ -491,5 +540,26 @@ impl UnixDatagramExt for UnixDatagram
                                 |_| Ok(socket)
                             )
                 );
+    }
+}
+
+#[cfg(feature = "mio")]
+impl UnixDatagramExt for mio::net::UnixDatagram 
+{
+    fn bind_unix_addr(addr: &UnixSocketAddr) -> Result<Self, io::Error> 
+    {
+        return 
+            mio::net::UnixDatagram
+                ::unbound()
+                    .map_or_else(
+                        |e| Err(e), 
+                        |socket|
+                            socket
+                                .bind_to_unix_addr(addr)
+                                .map_or_else(
+                                    |e| Err(e), 
+                                    |_| Ok(socket)
+                                )
+                    );
     }
 }

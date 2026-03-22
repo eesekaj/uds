@@ -1,4 +1,14 @@
-Version 0.6.0 (2026-02-03)
+Version 0.7.0 (2026-03-21)
+==========================
+* A Xio (Xio-rs) was added to the crate. It can be enaled by adding it to the features.
+* A Mio crate was returned to the crate. It can be enaled by adding it to the features.
+
+Version 0.6.1 (2026-02-04)
+==========================
+* Fixed release date of previous version
+* Added more info and comments.
+
+Version 0.6.0 (2026-01-17)
 ==========================
 * The crate's `addr.rs` is used as dependancy, so this crate can be used on Windows to utilize the `UnixSocketAddr`.
 * Added experimental support for unixstream in Windows i.e AF_UNIX SOCK_STREAM.

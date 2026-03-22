@@ -41,6 +41,18 @@ use crate::credentials::*;
 ///
 /// Illumos and Solaris doesn't support receiving zero-length packets at all:
 /// writes succeed but recv() will block.
+/// 
+/// # Registering with Xio (xio-rs) a feature = "xio-rs"
+/// 
+/// A `XioEventPipe` is implemented on this function. During initial registration
+/// an attempt set `nonblocking` mode is performed during initial registration.
+/// 
+/// See examples below.
+/// 
+/// # Registering with Mio (mio) a feature = "mio"
+/// 
+/// A `Source` is implemented on the instance.During initial registration
+/// an attempt set `nonblocking` mode is performed during initial registration.
 ///
 /// # Examples
 ///
@@ -92,6 +104,45 @@ use crate::credentials::*;
 /// let _client = UnixSeqpacketConn::connect_unix_addr(&addr)
 ///     .expect("connect to abstract seqpacket listener");
 /// let (_server, _addr) = listener.accept_unix_addr().unwrap();
+/// ```
+/// 
+/// ### Xio
+/// 
+/// ```ignore
+/// let (mut a, b) = UnixSeqpacketConn::pair().unwrap();
+/// 
+/// let mut reg = XioPollRegistry::<ESS>::new().unwrap();
+/// let mut event_buf = XioPollRegistry::<ESS>::allocate_events(128.try_into().unwrap());
+/// 
+/// // either
+/// let a_wrapped =
+///     reg.get_registry()
+///         .en_register_wrap(a, XioEventUid::manual(1), XioChannel::INPUT)
+///         .unwrap();
+///  
+/// // or 
+///     reg.get_registry()
+///         .en_register&mut a, XioEventUid::manual(1), XioChannel::INPUT)
+///         .unwrap();
+/// 
+/// // so depending on the method, use either:
+/// a_wrapped.inner();
+/// 
+/// // or continue using a directly
+/// ```
+/// 
+/// ### Mio:
+/// 
+/// ```ignore
+/// let (mut a, b) = UnixSeqpacketConn::pair().unwrap();
+/// 
+/// let mut poll = Poll::new().expect("create mio poll");
+/// let mut events = Events::with_capacity(10);
+/// 
+/// poll.registry()
+///     .register(&mut a, Token(1), Interest::READABLE)
+///     .unwrap();
+/// // ...
 /// ```
 #[derive(Debug)]
 #[repr(transparent)]
@@ -154,6 +205,71 @@ impl AsFd for UnixSeqpacketConn
     fn as_fd(&self) -> BorrowedFd<'_> 
     {
         self.fd.as_fd()
+    }
+}
+
+#[cfg(feature = "mio")]
+pub mod mio_conn_enabled
+{
+    use mio::{event::Source, unix::SourceFd};
+    use super::*;
+
+    impl Source for UnixSeqpacketConn
+    {
+        fn register(
+            &mut self,
+            registry: &mio::Registry,
+            token: mio::Token,
+            interests: mio::Interest,
+        ) -> io::Result<()> 
+        {
+            self.set_nonblocking(true)?;
+
+            SourceFd(&self.fd.as_raw_fd()).register(registry, token, interests)
+        }
+    
+        fn reregister(
+            &mut self,
+            registry: &mio::Registry,
+            token: mio::Token,
+            interests: mio::Interest,
+        ) -> io::Result<()> 
+        {
+            SourceFd(&self.fd.as_raw_fd()).reregister(registry, token, interests)
+        }
+    
+        fn deregister(&mut self, registry: &mio::Registry) -> io::Result<()> 
+        {
+            SourceFd(&self.fd.as_raw_fd()).deregister(registry)
+        }
+    }
+}
+
+#[cfg(feature = "xio-rs")]
+pub mod xio_conn_enabled
+{
+    use xio_rs::{EsInterfaceRegistry, XioChannel, XioEventPipe, XioEventUid, XioResult, event_registry::XioRegistry};
+
+    use crate::UnixSeqpacketConn;
+
+    impl<ESSR: EsInterfaceRegistry> XioEventPipe<ESSR, Self> for UnixSeqpacketConn
+    {
+        fn connect_event_pipe(&mut self, ess: &XioRegistry<ESSR>, ev_uid: XioEventUid, channel: XioChannel) -> XioResult<()> 
+        {
+            self.set_nonblocking(true)?;
+
+            ess.get_ev_sys().en_register(&self.fd, ev_uid, channel)
+        }
+    
+        fn modify_event_pipe(&mut self, ess: &XioRegistry<ESSR>, ev_uid: XioEventUid, channel: XioChannel) -> XioResult<()> 
+        {
+            ess.get_ev_sys().re_register(&self.fd, ev_uid, channel)
+        }
+    
+        fn disconnect_event_pipe(&mut self, ess: &XioRegistry<ESSR>) -> XioResult<()> 
+        {
+            ess.get_ev_sys().de_register(&self.fd)
+        }
     }
 }
 
@@ -596,11 +712,22 @@ impl UnixSeqpacketConn
 }
 
 
-
 /// An unix domain listener for sequential packet connections.
 ///
 /// See [`UnixSeqpacketConn`](struct.UnixSeqpacketConn.html) for a description
 /// of this type of connection.
+/// 
+/// # Registering with Xio (xio-rs) a feature = "xio-rs"
+/// 
+/// A `XioEventPipe` is implemented on this function. During initial registration
+/// an attempt set `nonblocking` mode is performed during initial registration.
+/// 
+/// See examples below.
+/// 
+/// # Registering with Mio (mio) a feature = "mio"
+/// 
+/// A `Source` is implemented on the instance.During initial registration
+/// an attempt set `nonblocking` mode is performed during initial registration.
 ///
 /// # Examples
 ///
@@ -615,6 +742,45 @@ impl UnixSeqpacketConn
 /// conn.send(b"Welcome").unwrap();
 /// # std::fs::remove_file(file_path).unwrap();
 /// ```
+/// 
+/// ### Xio
+/// 
+/// ```ignore
+/// let listener = uds_fork::UnixSeqpacketListener::bind(file_path).unwrap();
+/// 
+/// let mut reg = XioPollRegistry::<ESS>::new().unwrap();
+/// let mut event_buf = XioPollRegistry::<ESS>::allocate_events(128.try_into().unwrap());
+/// 
+/// // either
+/// let a_wrapped =
+///     reg.get_registry()
+///         .en_register_wrap(listener, XioEventUid::manual(1), XioChannel::INPUT)
+///         .unwrap();
+///  
+/// // or 
+///     reg.get_registry()
+///         .en_register&mut listener, XioEventUid::manual(1), XioChannel::INPUT)
+///         .unwrap();
+/// 
+/// // so depending on the method, use either:
+/// a_wrapped.inner();
+/// 
+/// // or continue using a directly
+/// ```
+/// 
+/// ### Mio:
+/// 
+/// ```ignore
+/// let listener = uds_fork::UnixSeqpacketListener::bind(file_path).unwrap();
+/// 
+/// let mut poll = Poll::new().expect("create mio poll");
+/// let mut events = Events::with_capacity(10);
+/// 
+/// poll.registry()
+///     .register(&mut listener, Token(1), Interest::READABLE)
+///     .unwrap();
+/// // ...
+/// ``` 
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct UnixSeqpacketListener 
@@ -678,6 +844,73 @@ impl AsFd for UnixSeqpacketListener
     fn as_fd(&self) -> BorrowedFd<'_> 
     {
         self.fd.as_fd()
+    }
+}
+
+#[cfg(feature = "mio")]
+pub mod mio_listener_enabled
+{
+    use std::{io, os::fd::AsRawFd};
+
+    use mio::{event::Source, unix::SourceFd};
+    use crate::UnixSeqpacketListener;
+
+    impl Source for UnixSeqpacketListener
+    {
+        fn register(
+            &mut self,
+            registry: &mio::Registry,
+            token: mio::Token,
+            interests: mio::Interest,
+        ) -> io::Result<()> 
+        {
+            self.set_nonblocking(true)?;
+            
+            SourceFd(&self.fd.as_raw_fd()).register(registry, token, interests)
+        }
+    
+        fn reregister(
+            &mut self,
+            registry: &mio::Registry,
+            token: mio::Token,
+            interests: mio::Interest,
+        ) -> io::Result<()> 
+        {
+            SourceFd(&self.fd.as_raw_fd()).reregister(registry, token, interests)
+        }
+    
+        fn deregister(&mut self, registry: &mio::Registry) -> io::Result<()> 
+        {
+            SourceFd(&self.fd.as_raw_fd()).deregister(registry)
+        }
+    }
+}
+
+#[cfg(feature = "xio-rs")]
+pub mod xio_listener_enabled
+{
+    use xio_rs::{EsInterfaceRegistry, XioChannel, XioEventPipe, XioEventUid, XioResult, event_registry::XioRegistry};
+
+    use crate::UnixSeqpacketListener;
+
+    impl<ESSR: EsInterfaceRegistry> XioEventPipe<ESSR, Self> for UnixSeqpacketListener
+    {
+        fn connect_event_pipe(&mut self, ess: &XioRegistry<ESSR>, ev_uid: XioEventUid, channel: XioChannel) -> XioResult<()> 
+        {
+            self.set_nonblocking(true)?;
+            
+            ess.get_ev_sys().en_register(&self.fd, ev_uid, channel)
+        }
+    
+        fn modify_event_pipe(&mut self, ess: &XioRegistry<ESSR>, ev_uid: XioEventUid, channel: XioChannel) -> XioResult<()> 
+        {
+            ess.get_ev_sys().re_register(&self.fd, ev_uid, channel)
+        }
+    
+        fn disconnect_event_pipe(&mut self, ess: &XioRegistry<ESSR>) -> XioResult<()> 
+        {
+            ess.get_ev_sys().de_register(&self.fd)
+        }
     }
 }
 
@@ -861,6 +1094,18 @@ impl UnixSeqpacketListener
 /// `MSG_DONTWAIT`. If creating this type from a raw file descriptor, ensure
 /// the fd is set to nonblocking before using it through this type.
 /// 
+/// # Registering with Xio (xio-rs) a feature = "xio-rs"
+/// 
+/// A `XioEventPipe` is implemented on this function. See [UnixSeqpacketConn]
+/// for an examples.
+/// 
+/// See examples below.
+/// 
+/// # Registering with Mio (mio) a feature = "mio"
+/// 
+/// A `Source` is implemented on the instance. See [UnixSeqpacketConn]
+/// for an examples.
+/// 
 /// # Examples
 ///
 /// Sending or receiving when it would block a normal socket:
@@ -963,6 +1208,70 @@ impl DerefMut for NonblockingUnixSeqpacketConn
     }
 }
 
+
+#[cfg(feature = "mio")]
+pub mod mio_non_blk_conn_enabled
+{
+    use std::io;
+
+    use mio::event::Source;
+    use super::NonblockingUnixSeqpacketConn;
+
+    impl Source for NonblockingUnixSeqpacketConn
+    {
+        fn register(
+            &mut self,
+            registry: &mio::Registry,
+            token: mio::Token,
+            interests: mio::Interest,
+        ) -> io::Result<()> 
+        {
+            self.usc.register(registry, token, interests)
+        }
+    
+        fn reregister(
+            &mut self,
+            registry: &mio::Registry,
+            token: mio::Token,
+            interests: mio::Interest,
+        ) -> io::Result<()> 
+        {
+            self.usc.reregister(registry, token, interests)
+        }
+    
+        fn deregister(&mut self, registry: &mio::Registry) -> io::Result<()> 
+        {
+            self.usc.deregister(registry)
+        }
+    }
+}
+
+#[cfg(feature = "xio-rs")]
+pub mod xio_non_blk_conn_enabled
+{
+    use xio_rs::{EsInterfaceRegistry, XioChannel, XioEventPipe, XioEventUid, XioResult, event_registry::XioRegistry};
+
+    use super::NonblockingUnixSeqpacketConn;
+
+    impl<ESSR: EsInterfaceRegistry> XioEventPipe<ESSR, Self> for NonblockingUnixSeqpacketConn
+    {
+        fn connect_event_pipe(&mut self, ess: &XioRegistry<ESSR>, ev_uid: XioEventUid, channel: XioChannel) -> XioResult<()> 
+        {
+            self.usc.connect_event_pipe(ess, ev_uid, channel)
+        }
+    
+        fn modify_event_pipe(&mut self, ess: &XioRegistry<ESSR>, ev_uid: XioEventUid, channel: XioChannel) -> XioResult<()> 
+        {
+            self.usc.modify_event_pipe(ess, ev_uid, channel)
+        }
+    
+        fn disconnect_event_pipe(&mut self, ess: &XioRegistry<ESSR>) -> XioResult<()> 
+        {
+            self.usc.disconnect_event_pipe(ess)
+        }
+    }
+}
+
 // can't Deref<Target=UnixSeqpacketConn> because that would include try_clone()
 // and later set_(read|write)_timeout()
 impl NonblockingUnixSeqpacketConn 
@@ -1058,11 +1367,17 @@ impl NonblockingUnixSeqpacketConn
 /// returns non-blocking [connection sockets](struct.NonblockingUnixSeqpacketConn.html)
 /// and doesn't block if no client `connect()`ions are pending.
 ///
-/// This type can be used with mio if the `mio_08` feature is enabled:
-///
-/// ```toml
-/// uds = { version = "x.y", features=["mio_08"] }
-/// ```
+/// # Registering with Xio (xio-rs) a feature = "xio-rs"
+/// 
+/// A `XioEventPipe` is implemented on this function. See [UnixSeqpacketListener]
+/// for an examples.
+/// 
+/// See examples below.
+/// 
+/// # Registering with Mio (mio) a feature = "mio"
+/// 
+/// A `Source` is implemented on the instance. See [UnixSeqpacketListener]
+/// for an examples.
 ///
 /// # Examples
 ///
@@ -1217,5 +1532,69 @@ impl NonblockingUnixSeqpacketListener
         let conn = NonblockingUnixSeqpacketConn { usc: UnixSeqpacketConn{ fd: socket.into() }};
         
         return Ok((conn, addr));
+    }
+}
+
+#[cfg(feature = "mio")]
+pub mod mio_non_blk_listener_enabled
+{
+    use std::{io, os::fd::AsRawFd};
+
+    use mio::{event::Source, unix::SourceFd};
+    use super::NonblockingUnixSeqpacketListener;
+
+    impl Source for NonblockingUnixSeqpacketListener
+    {
+        fn register(
+            &mut self,
+            registry: &mio::Registry,
+            token: mio::Token,
+            interests: mio::Interest,
+        ) -> io::Result<()> 
+        {
+            self.usl.register(registry, token, interests)
+        }
+    
+        fn reregister(
+            &mut self,
+            registry: &mio::Registry,
+            token: mio::Token,
+            interests: mio::Interest,
+        ) -> io::Result<()> 
+        {
+            self.usl.reregister(registry, token, interests)
+        }
+    
+        fn deregister(&mut self, registry: &mio::Registry) -> io::Result<()> 
+        {
+            self.usl.deregister(registry)
+        }
+    }
+}
+
+#[cfg(feature = "xio-rs")]
+pub mod xio_non_blk_listener_enabled
+{
+    use xio_rs::{EsInterfaceRegistry, XioChannel, XioEventPipe, XioEventUid, XioResult, event_registry::XioRegistry};
+
+    use super::NonblockingUnixSeqpacketListener;
+
+    impl<ESSR: EsInterfaceRegistry> XioEventPipe<ESSR, Self> for NonblockingUnixSeqpacketListener
+    {
+        fn connect_event_pipe(&mut self, ess: &XioRegistry<ESSR>, ev_uid: XioEventUid, channel: XioChannel) -> XioResult<()> 
+        {
+ 
+            self.usl.connect_event_pipe(ess, ev_uid, channel)
+        }
+    
+        fn modify_event_pipe(&mut self, ess: &XioRegistry<ESSR>, ev_uid: XioEventUid, channel: XioChannel) -> XioResult<()> 
+        {
+            self.usl.modify_event_pipe(ess, ev_uid, channel)
+        }
+    
+        fn disconnect_event_pipe(&mut self, ess: &XioRegistry<ESSR>) -> XioResult<()> 
+        {
+            self.usl.disconnect_event_pipe(ess)
+        }
     }
 }

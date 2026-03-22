@@ -3,16 +3,17 @@
 <img src="https://cdn.4neko.org/win_ev_log.webp" width="150"/>
 
 > [!IMPORTANT]  
-> I am not original author. A [GitHub](https://github.com/tormol/uds) and [Crates](https://crates.io/crates/uds) are links to original crate. This crate is forked!
+> Very bad news [ISSUE](https://github.com/tormol/uds/issues/29). I am not able to verify this!
 
 > [!IMPORTANT]  
-> Since an author is not responding on issues at his github page, I decided to fork the crate.
+> I am not original author. A [GitHub](https://github.com/tormol/uds) and [Crates](https://crates.io/crates/uds) are links to original crate. This crate is forked!
+
 
 A unix domain sockets Rust library that supports abstract addresses, fd-passing, SOCK_SEQPACKET sockets SOCK_STREAM for the `Windows` and more.
 
 A `AF_UNIX` `SOCK_STREAM` is implemented for Windows in windows_unixstream.rs as an experiment. WSA veriosn 2.2 is required.
 
-When possible, features are implemented via extension traits for [`std::os::unix::net`](https://doc.rust-lang.org/std/os/unix/net/index.html) types (and optionally [mio](https://crates.io/crates/mio)'s uds types) instead of exposing new structs.
+When possible, features are implemented via extension traits for [`std::os::unix::net`](https://doc.rust-lang.org/std/os/unix/net/index.html) types (and optionally [mio](https://crates.io/crates/mio)'s uds types) instead of exposing new structs. And [xio](https://crates.io/crates/xio-rs)'s uds types including Unix Socket for Windows.
 The only new socket structs this crate exposes are those for seqpacket sockets.
 
 Ancillary credentials and timestamps are not yet supported.
@@ -22,6 +23,14 @@ Ancillary credentials and timestamps are not yet supported.
 
 <details>
   <summary>Changelog</summary>
+
+* A xio was added to the crate.
+* A mio was returned to the crate.
+
+</details>
+
+<details>
+  <summary>Changelog Version 0.6.1 (2026-02-04)</summary>
 
 * Fixed release date of previous version
 * Added more info and comments.
@@ -169,31 +178,46 @@ use uds_fork::{RecvFlags, WindowsUnixListener, WindowsUnixStream};
 
 ```
 
-## Using with MIO
+## Using with Xio (xio-rs)
 
-The MIO crate depedancy was removed because it can be implemented for the socket types of this 
-crate by the programmer.
+The Xio can be enabled by enabling the feature "xio-rs".
 
 ```rust ignore
-impl  event::Source  for NonblockingUnixSeqpacketConn
-{
-  fn register(&mut self,  registry: &Registry,  token: Token,  interest: Interest )
-  -> Result<(), io::Error> 
-  {
-      unix::SourceFd(&self.fd).register(registry, token, interest)
-  }
-  
-  fn reregister(&mut self,  registry: &Registry,  token: Token,  interest: Interest)
-  -> Result<(), io::Error> 
-  {
-      unix::SourceFd(&self.fd).reregister(registry, token, interest)
-  }
-  
-  fn deregister(&mut self,  registry: &Registry) -> Result<(), io::Error> 
-  {
-      unix::SourceFd(&self.fd).deregister(registry)
-  }
-}
+let (mut a, b) = UnixSeqpacketConn::pair().unwrap();
+
+let mut reg = XioPollRegistry::<ESS>::new().unwrap();
+let mut event_buf = XioPollRegistry::<ESS>::allocate_events(128.try_into().unwrap());
+
+// either
+let a_wrapped =
+    reg.get_registry()
+        .en_register_wrap(a, XioEventUid::manual(1), XioChannel::INPUT)
+        .unwrap();
+ 
+// or 
+    reg.get_registry()
+        .en_register&mut a, XioEventUid::manual(1), XioChannel::INPUT)
+        .unwrap();
+
+// so depending on the method, use either:
+a_wrapped.inner();
+
+// or continue using a directly
+```
+
+## Using with MIO
+
+The MIO crate can be enabled using feature "mio".
+
+```rust ignore
+let (mut a, b) = UnixSeqpacketConn::pair().unwrap();
+
+let mut poll = Poll::new().expect("create mio poll");
+let mut events = Events::with_capacity(10);
+
+poll.registry()
+    .register(&mut a, Token(1), Interest::READABLE)
+    .unwrap();
 ```
 
 ## Portability
