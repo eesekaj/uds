@@ -945,6 +945,44 @@ impl UnixSeqpacketListener
     }
 
     /// Accepts a new incoming connection to this listener.
+    /// 
+    /// Rustdocs: 
+    /// > This function will block the calling thread until a new Unix connection
+    /// > is established. When established, the corresponding [`UnixSeqpacketConn`] and
+    /// > the remote peer's address will be returned.
+    /// 
+    /// [`UnixSeqpacketConn`]: uds_fork::UnixSeqpacketConn
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use uds_fork::UnixSeqpacketListener;
+    ///
+    /// fn main() -> std::io::Result<()> 
+    /// {
+    ///     let listener = UnixSeqpacketListener::bind("/path/to/the/socket")?;
+    ///
+    ///     match listener.accept()
+    ///     {
+    ///         Ok((socket, addr)) => 
+    ///             println!("Got a client: {addr:?}"),
+    ///         Err(e) => 
+    ///             println!("accept function failed: {e:?}"),
+    ///     }
+    /// 
+    ///     return Ok(());
+    /// }
+    /// ```
+    #[inline]
+    pub 
+    fn accept(&self)-> Result<(UnixSeqpacketConn, UnixSocketAddr), io::Error> 
+    {
+        self.accept_unix_addr()
+    }
+
+    /// Accepts a new incoming connection to this listener.
+    /// 
+    /// See [Self::accept].
     pub 
     fn accept_unix_addr(&self)-> Result<(UnixSeqpacketConn, UnixSocketAddr), io::Error> 
     {
@@ -1080,6 +1118,119 @@ impl UnixSeqpacketListener
     fn set_nonblocking(&self,  nonblocking: bool) -> Result<(), io::Error> 
     {
         set_nonblocking(&self, nonblocking)
+    }
+
+    /// Returns an iterator over incoming connections.
+    /// 
+    /// Rustdoc:
+    /// > The iterator will never return [`None`] and will also not yield the
+    /// > peer's [`UnixSocketAddr`] structure.
+    /// 
+    /// ```no_run
+    /// use std::thread;
+    /// use uds_fork::{UnixSeqpacketConn, UnixSeqpacketListener};
+    ///
+    /// fn handle_client(stream: UnixSeqpacketConn) 
+    /// {
+    ///     // ...
+    /// }
+    ///
+    /// fn main() -> std::io::Result<()> 
+    /// {
+    ///     let listener = UnixSeqpacketListener::bind("/path/to/the/socket")?;
+    ///
+    ///     for stream in listener.incoming() 
+    ///     {
+    ///         match stream 
+    ///         {
+    ///             Ok(stream) => 
+    ///             {
+    ///                 thread::spawn(|| handle_client(stream));
+    ///             },
+    ///             Err(err) => 
+    ///             {
+    ///                 break;
+    ///             }
+    ///         }
+    ///     }
+    /// 
+    ///     return Ok(());
+    /// }
+    /// ```
+    pub 
+    fn incoming(&self) -> Incoming<'_> 
+    {
+        Incoming { listener: self }
+    }
+}
+
+/// A rust std API.
+/// 
+/// From Rustdocs:
+/// > An iterator over incoming connections to a [`UnixListener`].
+/// >
+/// > It will never return [`None`].
+/// 
+/// # Examples
+///
+/// ```no_run
+/// use std::thread;
+/// use uds_fork::{UnixSeqpacketConn, UnixSeqpacketListener};
+///
+/// fn handle_client(stream: UnixSeqpacketConn) {
+///     // ...
+/// }
+///
+/// fn main() -> std::io::Result<()> 
+/// {
+///     let listener = UnixSeqpacketListener::bind("/path/to/the/socket")?;
+///
+///     for stream in listener.incoming() 
+///     {
+///         match stream 
+///         {
+///             Ok(stream) => 
+///             {
+///                 thread::spawn(|| handle_client(stream));
+///             }
+///             Err(err) => 
+///             {
+///                 break;
+///             }
+///         }
+///     }
+///     return Ok(());
+/// }
+/// ```
+#[derive(Debug)]
+pub struct Incoming<'a> 
+{
+    listener: &'a UnixSeqpacketListener,
+}
+
+impl<'a> Iterator for Incoming<'a> 
+{
+    type Item = io::Result<UnixSeqpacketConn>;
+
+    fn next(&mut self) -> Option<io::Result<UnixSeqpacketConn>> 
+    {
+        Some(self.listener.accept().map(|s| s.0))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) 
+    {
+        (usize::MAX, None)
+    }
+}
+
+impl<'a> IntoIterator for &'a UnixSeqpacketListener 
+{
+    type Item = io::Result<UnixSeqpacketConn>;
+    type IntoIter = Incoming<'a>;
+
+    fn into_iter(self) -> Incoming<'a> 
+    {
+        self.incoming()
     }
 }
 

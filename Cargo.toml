@@ -1,6 +1,6 @@
 [package]
 name = "uds-fork"
-version = "0.7.0"
+version = "0.7.1"
 description = """
 A unix domain socket crate that supports abstract addresses, fd-passing, seqpacket and windows unix stream sockets.
 """
@@ -15,16 +15,14 @@ exclude = ["tests", "src/bin", ".vscode"]
 
 [features]
 
-default = ["mio", "xio-rs"]
+default = []
 
 [dependencies]
-xio-rs = { version = "0.1.0-alpha.2", optional = true }
-
-mio = { version = "1.1.1", features = ["os-ext", "net"], optional = true }
+xio-rs = { version = "0.1.0-alpha.3", optional = true } # MIT
 
 [target."cfg(unix)".dependencies]
 libc = "~0.2"
-
+mio = { version = "~1.1", features = ["os-ext", "net"], optional = true }
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "~0.61"
@@ -33,9 +31,12 @@ features = [
   "Win32_Networking_WinSock",
   "Win32_System_IO",
 ]
+[target.'cfg(windows)'.dependencies.tempfile]
+version = "~3.27" 
 
 [dev-dependencies]
-xio-rs = { version = "0.1.0-alpha.2" }
+xio-rs = { version = "0.1.0-alpha.3" } # MIT
+tempfile = { version = "~3.27" }
 
 [package.metadata.docs.rs]
 features = ["mio", "xio"]

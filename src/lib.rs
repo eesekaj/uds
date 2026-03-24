@@ -46,6 +46,9 @@ extern crate libc;
 #[cfg(target_family = "windows")]
 extern crate windows_sys;
 
+#[cfg(target_family = "windows")]
+extern crate tempfile;
+
 /// Get errno as io::Error on -1.
 macro_rules! cvt {($syscall:expr) => {
     match $syscall 

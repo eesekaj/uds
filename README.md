@@ -9,7 +9,7 @@
 > I am not original author. A [GitHub](https://github.com/tormol/uds) and [Crates](https://crates.io/crates/uds) are links to original crate. This crate is forked!
 
 
-A unix domain sockets Rust library that supports abstract addresses, fd-passing, SOCK_SEQPACKET sockets SOCK_STREAM for the `Windows` and more.
+A unix domain sockets Rust library that supports abstract addresses, fd-passing, SOCK_SEQPACKET sockets SOCK_STREAM for the `Windows` and more i.e Unix Domain Sockets for Windows.
 
 A `AF_UNIX` `SOCK_STREAM` is implemented for Windows in windows_unixstream.rs as an experiment. WSA veriosn 2.2 is required.
 
@@ -18,11 +18,26 @@ The only new socket structs this crate exposes are those for seqpacket sockets.
 
 Ancillary credentials and timestamps are not yet supported.
 
+## Features:
+
+* "xio-rs" enables the Xio-rs event notification system compat code
+* "mio" enables the Mio event notification system compat code
+
 ## Changelog
 
+<details>
+  <summery>Changelog </summery>
+
+* Hotfix: Cargo.toml default features. Removed default items.
+* Updated Cargo.toml versions of the deps.
+* Added 'Incoming' iterator for `UnixSeqpacketListener`
+* Added 'Incoming' iterator for `WindowsUnixListener`.
+* Added additional functionality including socket pair for `WindowsUnixSocket`.
+
+</details>
 
 <details>
-  <summary>Changelog</summary>
+  <summary>Changelog Version 0.7.0 (2026-03-21) </summary>
 
 * A xio was added to the crate.
 * A mio was returned to the crate.

@@ -252,6 +252,158 @@ impl Display for UnixSocketAddr
     }
 }
 
+#[cfg(windows)]
+impl UnixSocketAddr
+{
+    /// Allows creating abstract, path or unspecified address based on an
+    /// user-supplied string.
+    ///
+    /// A leading `'@'` or `'\0'` signifies an abstract address,
+    /// an empty slice is taken as the unnamed address, and anything else is a
+    /// path address.  
+    /// If a relative path address starts with `@`, escape it by prepending
+    /// `"./"`.
+    /// To avoid surprises, abstract addresses will be detected regargsless of
+    /// wheither the OS supports them, and result in an error if it doesn't.
+    ///
+    /// # Errors
+    ///
+    /// * A path or abstract address is too long.
+    /// * A path address contains `'\0'`.
+    /// * An abstract name was supplied on an OS that doesn't support them.
+    ///
+    /// # Examples
+    ///
+    /// Abstract address:
+    ///
+    /// ```
+    /// # use uds_fork::UnixSocketAddr;
+    /// if UnixSocketAddr::has_abstract_addresses() {
+    ///     assert!(UnixSocketAddr::new("@abstract").unwrap().is_abstract());
+    ///     assert!(UnixSocketAddr::new("\0abstract").unwrap().is_abstract());
+    /// } else {
+    ///     assert!(UnixSocketAddr::new("@abstract").is_err());
+    ///     assert!(UnixSocketAddr::new("\0abstract").is_err());
+    /// }
+    /// ```
+    ///
+    /// Escaped path address:
+    ///
+    /// ```
+    /// # use uds_fork::UnixSocketAddr;
+    /// assert!(UnixSocketAddr::new("./@path").unwrap().is_relative_path());
+    /// ```
+    ///
+    /// Unnamed address:
+    ///
+    /// ```
+    /// # use uds_fork::UnixSocketAddr;
+    /// assert!(UnixSocketAddr::new("").unwrap().is_unnamed());
+    /// ```
+    pub 
+    fn new<A: AsRef<[u8]>+?Sized>(addr: &A) -> Result<Self, io::Error> 
+    {
+        fn parse(addr: &[u8]) -> Result<UnixSocketAddr, io::Error> 
+        {
+            match addr.first() 
+            {
+                Some(&b'@') | Some(&b'\0') => 
+                    return 
+                        Err(
+                            io::Error::new(
+                                ErrorKind::AddrNotAvailable, 
+                                format!( "abstract unix domain socket addresses are not available on {}",
+                                    std::env::consts::OS)
+                            )
+                        ),
+                Some(_) => 
+                {
+                    let utf8_valid = 
+                        str::from_utf8(addr)
+                            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e)
+                        )?;
+
+                    UnixSocketAddr::from_path(Path::new(utf8_valid))
+                },
+                None => 
+                    return 
+                        Err(
+                            io::Error::new(
+                                ErrorKind::AddrNotAvailable, 
+                                format!( "unspecified unix domain socket addresses are not available on {}",
+                                    std::env::consts::OS)
+                            )
+                        ),
+            }
+        }
+
+        return parse(addr.as_ref());
+    }
+
+    /// Allows creating abstract, path or unspecified address based on an
+    /// user-supplied string for Windows UTF-16 path.
+    ///
+    /// A leading `'@'` or `'\0'` signifies an abstract address,
+    /// an empty slice is taken as the unnamed address, and anything else is a
+    /// path address. (Windows does not support abstract addresses)  
+    /// If a relative path address starts with `@`, escape it by prepending
+    /// `"./"`.
+    /// To avoid surprises, abstract addresses will be detected regargsless of
+    /// wheither the OS supports them, and result in an error if it doesn't.
+    ///
+    /// # Errors
+    ///
+    /// * A path or abstract address is too long.
+    /// * A path address contains `'\0'`.
+    /// * An abstract name was supplied on an OS that doesn't support them.
+    pub 
+    fn new_utf16<A: AsRef<[u16]>+?Sized>(addr_v: &A) -> Result<Self, io::Error> 
+    {
+        use std::{ffi::OsString, os::windows::ffi::OsStringExt};
+        let addr = addr_v.as_ref();
+       
+        let first = 
+            if addr.len() > 0
+            {
+                Some(OsString::from_wide(&addr[0..1]))
+            }
+            else
+            {
+                None
+            };
+
+        match first.as_ref().map(|v| v.as_encoded_bytes())
+        {
+            Some(b"@") | Some(b"\0") => 
+                return 
+                    Err(
+                        io::Error::new(
+                            ErrorKind::AddrNotAvailable, 
+                            format!( "abstract unix domain socket addresses are not available on {}",
+                                std::env::consts::OS)
+                        )
+                    ),
+            Some(_) => 
+            {
+                
+                let osstr = OsString::from_wide(addr);
+
+                return  UnixSocketAddr::from_path(Path::new( &osstr ));
+            },
+            None => 
+                return 
+                    Err(
+                        io::Error::new(
+                            ErrorKind::AddrNotAvailable, 
+                            format!( "unspecified unix domain socket addresses are not available on {}",
+                                std::env::consts::OS)
+                        )
+                    ),
+        }
+    }
+}
+
+#[cfg(unix)]
 impl UnixSocketAddr 
 {
     /// Allows creating abstract, path or unspecified address based on an
@@ -308,19 +460,8 @@ impl UnixSocketAddr
             {
                 Some(&b'@') | Some(&b'\0') => 
                     UnixSocketAddr::from_abstract(&addr[1..]),
-                #[cfg(unix)]
                 Some(_) => 
                     UnixSocketAddr::from_path(Path::new(OsStr::from_bytes(addr))),
-                #[cfg(windows)]
-                Some(_) => 
-                {
-                    let utf8_valid = 
-                        str::from_utf8(addr)
-                            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e)
-                        )?;
-
-                    UnixSocketAddr::from_path(Path::new(utf8_valid))
-                },
                 None => 
                     Ok(UnixSocketAddr::new_unspecified()),
             }
@@ -328,60 +469,10 @@ impl UnixSocketAddr
 
         return parse(addr.as_ref());
     }
+}
 
-    #[cfg(windows)]
-    /// Allows creating abstract, path or unspecified address based on an
-    /// user-supplied string for Windows UTF-16 path.
-    ///
-    /// A leading `'@'` or `'\0'` signifies an abstract address,
-    /// an empty slice is taken as the unnamed address, and anything else is a
-    /// path address.  
-    /// If a relative path address starts with `@`, escape it by prepending
-    /// `"./"`.
-    /// To avoid surprises, abstract addresses will be detected regargsless of
-    /// wheither the OS supports them, and result in an error if it doesn't.
-    ///
-    /// # Errors
-    ///
-    /// * A path or abstract address is too long.
-    /// * A path address contains `'\0'`.
-    /// * An abstract name was supplied on an OS that doesn't support them.
-    pub 
-    fn new_windows<A: AsRef<[u16]>+?Sized>(addr_v: &A) -> Result<Self, io::Error> 
-    {
-        use std::{ffi::OsString, os::windows::ffi::OsStringExt};
-        let addr = addr_v.as_ref();
-       
-        let first = 
-            if addr.len() > 0
-            {
-                Some(OsString::from_wide(&addr[0..1]))
-            }
-            else
-            {
-                None
-            };
-
-        match first.as_ref().map(|v| v.as_encoded_bytes())
-        {
-            Some(b"@") | Some(b"\0") => 
-            {
-                let osstr = OsString::from_wide(addr);
-
-                UnixSocketAddr::from_abstract(&osstr.as_encoded_bytes()[1..])
-            },
-            Some(_) => 
-            {
-                
-                let osstr = OsString::from_wide(addr);
-
-                UnixSocketAddr::from_path(Path::new( &osstr ))
-            },
-            None => 
-                Ok(UnixSocketAddr::new_unspecified()),
-        }
-    }
-
+impl UnixSocketAddr 
+{
     /// Creates an unnamed address, which on Linux can be used for auto-bind.
     ///
     /// Binding a socket to the unnamed address is different from not binding

@@ -427,48 +427,6 @@ impl AsMut<[u8]> for AncillaryBuf
     }
 }
 
-/*
-#[derive(Debug)]
-pub struct OwnedFdSlice(Vec<OwnedFd>);
-
-impl OwnedFdSlice
-{
-    /// Creates a new [`FdSlice`] with the lifetime from a `unaligned_ptr` and a `len`.
-    ///
-    /// # Safety
-    /// The unaligned_ptr does not need to be properly aligned, but it needs to point to at least `len` [`RawFd`]s.
-    /// The unaligned_ptr may not be null.
-    unsafe 
-    fn new(unaligned_ptr: *const RawFd, len: usize) -> Self 
-    {
-        debug_assert!(!unaligned_ptr.is_null(), "No NULL pointer for FdSlice");
-        
-        let owned_fd_list = 
-            unsafe { slice::from_raw_parts(unaligned_ptr, len) }
-                .into_iter()
-                .map(|fd| unsafe{ OwnedFd::from_raw_fd(*fd)} )
-                .collect::<Vec<OwnedFd>>();
-        
-        return Self(owned_fd_list);
-    }
-
-    /// The amount of [`RawFd`] in this [`FdSlice`]
-    pub 
-    fn len(&self) -> usize 
-    {
-        self.0.len()
-    }
-
-    /// Returns an iterator over the elements of this [`FdSlice`]
-    pub 
-    fn into_iter(self) -> std::vec::IntoIter<OwnedFd>
-    {
-        self.0.into_iter()
-    }
-
-}
-*/
-
 /// One ancillary message produced by [`Ancillary`](#struct.Ancillary)
 #[derive(Debug)]
 pub enum AncillaryItem

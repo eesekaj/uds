@@ -1,49 +1,71 @@
 #![cfg(windows)]
 
-use std::io::IoSliceMut;
+use std::{io::IoSliceMut, path::PathBuf};
 
+use tempfile::TempDir;
 use uds_fork::{RecvFlags, WindowsUnixListener, WindowsUnixStream};
 use windows_sys::Win32::Networking::WinSock::{AF_UNIX, SOCK_STREAM};
 
-fn rem_sock(file: &str)
+fn make_temp_dir(path: &str) -> (PathBuf, TempDir)
 {
-    let _ = std::fs::remove_file(file);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(path);
+
+    return (path, dir);
 }
 
 #[test]
 fn test_listener()
 {
-    let path = "server.sock";
-    rem_sock(path);
+    let (path, _dir) = make_temp_dir("server1.sock");
 
     let _wul = WindowsUnixListener::bind(path).unwrap();
-
-    rem_sock(path);
 }
 
 #[test]
 fn test_listener_blocking()
 {
-    let path = "server2.sock";
-    rem_sock(path);
+    let (path, _dir) = make_temp_dir("server2.sock");
 
     let wul = WindowsUnixListener::bind(path).unwrap();
 
     wul.set_nonblocking(true).unwrap();
     wul.set_nonblocking(false).unwrap();
 
-    rem_sock(path);
+}
+
+#[test]
+fn test_pair1()
+{
+    let (s1, s2) = WindowsUnixStream::pair().unwrap();
+
+    let data: [u8; 4] = [1,2,3,4];
+
+    let s1n = s1.send(&data).unwrap();
+    assert_eq!(s1n, data.len());
+
+    let mut rcv_data = [0_u8; 10];
+    let s2n = s2.recv(&mut rcv_data).unwrap();
+    assert_eq!(s1n, s2n);
+    assert_eq!(&data, &rcv_data[..s2n]);
+
+    let s2n = s2.send(&data).unwrap();
+    assert_eq!(s2n, data.len());
+
+    let mut rcv_data = [0_u8; 10];
+    let s1n = s1.recv(&mut rcv_data).unwrap();
+    assert_eq!(s1n, s2n);
+    assert_eq!(&data, &rcv_data[..s1n]);
 }
 
 #[test]
 fn test_listener_send_recv()
 {
-    let path = "server3.sock";
-    rem_sock(path);
+    let (path, _dir) = make_temp_dir("server3.sock");
 
-    let wul = WindowsUnixListener::bind(path).unwrap();
+    let wul = WindowsUnixListener::bind(&path).unwrap();
 
-    let client = WindowsUnixStream::connect(path).unwrap();
+    let client = WindowsUnixStream::connect(&path).unwrap();
 
     let (accp_client, rem_addr) = wul.accept_unix_addr().unwrap();
 
@@ -78,20 +100,17 @@ fn test_listener_send_recv()
     let rcv_n = client.recv(&mut rcv_data).unwrap();
     assert_eq!(srv_n, rcv_n);
     assert_eq!(&data, &rcv_data[..srv_n]);
-
-    rem_sock(path);
 }
 
 
 #[test]
 fn test_listener_send_recv_vectored()
 {
-    let path = "server4.sock";
-    rem_sock(path);
+    let (path, _dir) = make_temp_dir("server4.sock");;
 
-    let wul = WindowsUnixListener::bind(path).unwrap();
+    let wul = WindowsUnixListener::bind(&path).unwrap();
 
-    let a = WindowsUnixStream::connect(path).unwrap();
+    let a = WindowsUnixStream::connect(&path).unwrap();
 
     let (b, rem_addr) = wul.accept_unix_addr().unwrap();
 
@@ -130,5 +149,5 @@ fn test_listener_send_recv_vectored()
     assert_eq!(&array_1, b"ate ");
     assert_ne!(&array_1, b"medo");
 
-    rem_sock(path);
+
 }

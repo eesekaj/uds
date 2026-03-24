@@ -219,7 +219,7 @@ fn from_raw_empty() {
 fn test1()
 {
     let path16: Vec<u16> = "C:\\test\\test.sock".to_string().encode_utf16().collect();
-    let uss = UnixSocketAddr::new_windows(&path16).unwrap();
+    let uss = UnixSocketAddr::new_utf16(&path16).unwrap();
 
     println!("{} {:?}", uss, uss);
     assert_eq!(uss.is_absolute_path(), true);

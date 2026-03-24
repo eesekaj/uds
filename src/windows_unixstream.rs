@@ -1,25 +1,18 @@
 
 use std::
 {
-    cmp::min, 
-    ffi::{c_int, c_void}, 
-    io::{self, ErrorKind}, 
-    mem::{self, MaybeUninit}, 
-    os::windows::io::
+    cmp::min, ffi::{c_int, c_void}, fs, io::{self, ErrorKind}, mem::{self, MaybeUninit}, net::Shutdown, os::windows::io::
     {
         AsRawSocket, AsSocket, BorrowedSocket, FromRawSocket, IntoRawSocket, OwnedSocket, RawSocket
-    }, 
-    path::Path, 
-    ptr, 
-    sync::{LazyLock, OnceLock}
+    }, path::Path, ptr, sync::{LazyLock, OnceLock, atomic::{AtomicU64, Ordering}, mpsc}, thread::{self, JoinHandle}, time::Duration
 };
 
 use windows_sys::
 {
-    Win32::Networking::WinSock::
+    Win32::{Foundation::{HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation}, Networking::WinSock::
     {
-        AF_UNIX, FIONBIO, INVALID_SOCKET, MSG_TRUNC, SO_ERROR, SO_TYPE, SOCK_STREAM, SOCKADDR as sockaddr, SOCKET_ERROR, SOL_SOCKET, WSACleanup, WSADATA, WSAEMSGSIZE, WSAESHUTDOWN, WSARecv, WSASend, WSAStartup, accept, bind, connect, getpeername, getsockname, getsockopt, ioctlsocket, listen, recv, send, socket, socklen_t
-    }, 
+        AF_UNIX, FIONBIO, INVALID_SOCKET, MSG_TRUNC, SD_BOTH, SD_RECEIVE, SD_SEND, SO_ERROR, SO_RCVTIMEO, SO_SNDTIMEO, SO_TYPE, SOCK_STREAM, SOCKADDR as sockaddr, SOCKADDR_UN, SOCKET_ERROR, SOL_SOCKET, TIMEVAL, WSA_FLAG_NO_HANDLE_INHERIT, WSA_FLAG_OVERLAPPED, WSACleanup, WSADATA, WSAEMSGSIZE, WSAESHUTDOWN, WSAPROTOCOL_INFOW, WSARecv, WSASend, WSASocketW, WSAStartup, accept, bind, connect, getpeername, getsockname, getsockopt, ioctlsocket, listen, recv, send, shutdown, socket, socklen_t
+    }}, 
     core::PCSTR
 };
 
@@ -29,7 +22,17 @@ use crate::{LISTEN_BACKLOG, UnixSocketAddr};
 fn create_socket() -> io::Result<OwnedSocket>
 {
      let socket_res = 
-           unsafe { socket(AF_UNIX as i32, SOCK_STREAM, 0) };
+        unsafe 
+        { 
+            WSASocketW(
+                AF_UNIX as i32, 
+                SOCK_STREAM, 
+                0, 
+                ptr::null(), 
+                0, 
+                WSA_FLAG_NO_HANDLE_INHERIT | WSA_FLAG_OVERLAPPED
+            ) 
+        };
 
     if socket_res != INVALID_SOCKET
     {
@@ -138,8 +141,8 @@ where FD: AsRawSocket
 pub 
 fn get_socket_family<S: AsRawSocket>(fd: &S) -> io::Result<u16>
 {
-    let mut optval: MaybeUninit<sockaddr> = MaybeUninit::zeroed();
-    let mut len = size_of::<sockaddr>() as socklen_t;
+    let mut optval: MaybeUninit<SOCKADDR_UN> = MaybeUninit::zeroed();
+    let mut len = size_of::<SOCKADDR_UN>() as socklen_t;
     
 
     let res = 
@@ -149,9 +152,9 @@ fn get_socket_family<S: AsRawSocket>(fd: &S) -> io::Result<u16>
         };
 
     // more likely it will not fail
-    if res == 0
+    if res != SOCKET_ERROR 
     {
-        return Ok(unsafe { optval.assume_init() }.sa_family);
+        return Ok(unsafe { optval.assume_init() }.sun_family);
     }
     else
     {
@@ -260,7 +263,7 @@ where FD: AsRawSocket
                     return Err(io::Error::last_os_error());
                 }
 
-                let o_sock = WindowsUnixStream::from_raw_socket(socket as u64);
+                let o_sock = WindowsUnixStream::from_raw_socket_checked(socket as u64);
 
                 if nonblocking  == true
                 {
@@ -272,6 +275,236 @@ where FD: AsRawSocket
         ) 
     }
 }
+
+
+fn shutdown_sock<SOCK: AsRawSocket>(sock: &SOCK, how: Shutdown) -> io::Result<()> 
+{
+    let res = 
+        match how 
+        {
+            Shutdown::Write => 
+                unsafe{ shutdown(sock.as_raw_socket() as usize, SD_SEND) },
+            Shutdown::Read =>
+                unsafe{ shutdown(sock.as_raw_socket() as usize, SD_RECEIVE) },
+            Shutdown::Both => 
+                unsafe{ shutdown(sock.as_raw_socket() as usize, SD_BOTH) },
+        };
+
+    if res == -1
+    {
+        return Err(io::Error::last_os_error());
+    }
+
+    return Ok(());
+}
+
+/// `noinherit` - when set to `true` means noinherit
+fn set_handle_inherit<S: AsRawSocket>(sock: &S, noinherit: bool) -> io::Result<()>
+{
+    let res = 
+        unsafe 
+        {
+            SetHandleInformation(
+                sock.as_raw_socket() as HANDLE,
+                HANDLE_FLAG_INHERIT,
+                (noinherit == false) as u32,
+            )
+        };
+
+    if res != 0
+    {
+        return Ok(());
+    }
+
+    return Err(io::Error::last_os_error());
+}
+
+pub struct SockOpts
+{
+    optname: i32,
+    opt: SockOpt,
+}
+
+impl SockOpts
+{
+    const LEVEL: i32 = SOL_SOCKET;
+
+    fn from_opt_duration(value: Option<Duration>) -> TIMEVAL
+    {
+        value
+            .map_or(
+                TIMEVAL{ tv_sec: 0, tv_usec: 0 },
+                |v| 
+                TIMEVAL
+                { 
+                    tv_sec: min(v.as_secs(), i32::MAX as u64) as i32,
+                    tv_usec: v.subsec_micros() as i32,
+                }
+            )
+    }
+
+    fn from_timeval(value: TIMEVAL) -> Option<Duration>
+    {
+        if value.tv_sec == 0 && value.tv_usec == 0 
+        {
+            return None;
+        } 
+        else 
+        {
+            let sec = value.tv_sec as u64;
+            let nsec = (value.tv_usec as u32) * 1000;
+
+            return Some(Duration::new(sec, nsec));
+        }
+    }
+
+    fn set_rcv_timeout<SOCK: AsRawSocket>(sock: &SOCK, tm: Option<Duration>) -> io::Result<()>
+    {
+        let op = 
+            Self
+            {
+                optname: SO_RCVTIMEO,
+                opt: 
+                    SockOpt::RcvTimeout(Self::from_opt_duration(tm))
+            };
+
+        return op.setsockopt(sock);
+    }
+
+    fn get_rcv_timeout<SOCK: AsRawSocket>(sock: &SOCK) -> io::Result<Option<Duration>>
+    {
+        let op = 
+            Self
+            {
+                optname: SO_RCVTIMEO,
+                opt: 
+                    SockOpt::RcvTimeout(TIMEVAL::default())
+            };
+
+        let SockOpt::RcvTimeout(v) = op.getsockopt(sock)?
+            else
+            {   
+                return Err(
+                    io::Error::new(ErrorKind::Other, "assertion trap: expected SockOpt::RcvTimeout")
+                );
+            };
+
+        return Ok(Self::from_timeval(v));
+    }
+
+    fn set_snd_timeout<SOCK: AsRawSocket>(sock: &SOCK, tm: Option<Duration>) -> io::Result<()>
+    {
+        let op = 
+            Self
+            {
+                optname: SO_SNDTIMEO,
+                opt: 
+                    SockOpt::SndTimeout(Self::from_opt_duration(tm))
+            };
+
+        return op.setsockopt(sock);
+    }
+
+    fn get_snd_timeout<SOCK: AsRawSocket>(sock: &SOCK) -> io::Result<Option<Duration>>
+    {
+        let op = 
+            Self
+            {
+                optname: SO_SNDTIMEO,
+                opt: 
+                    SockOpt::SndTimeout(TIMEVAL::default())
+            };
+
+        let SockOpt::SndTimeout(v) = op.getsockopt(sock)?
+            else
+            {   
+                return Err(
+                    io::Error::new(ErrorKind::Other, "assertion trap: expected SockOpt::SndTimeout")
+                );
+            };
+
+        return Ok(Self::from_timeval(v));
+    }
+
+    fn getsockopt<SOCK>(self, sock: &SOCK) -> io::Result<SockOpt>
+    where 
+        SOCK: AsRawSocket
+    {
+        let (mut optval, mut len) = 
+            match self.opt
+            {
+                SockOpt::RcvTimeout(timeval) =>
+                    (MaybeUninit::<TIMEVAL>::zeroed(), size_of_val(&timeval) as i32),
+                SockOpt::SndTimeout(timeval) => 
+                    (MaybeUninit::<TIMEVAL>::zeroed(), size_of_val(&timeval) as i32),
+            };
+
+        let res = 
+            unsafe
+            {
+                windows_sys::Win32::Networking::WinSock
+                    ::getsockopt(sock.as_raw_socket() as usize,Self::LEVEL, self.optname,
+                        optval.as_mut_ptr().cast(),&mut len,
+                )
+            };
+
+        // more likely it will not fail
+        if res != SOCKET_ERROR
+        {
+            match self.opt
+            {
+                SockOpt::RcvTimeout(_) =>
+                    return Ok(unsafe { SockOpt::RcvTimeout(optval.assume_init()) }),
+                SockOpt::SndTimeout(_) => 
+                    return Ok(unsafe { SockOpt::SndTimeout(optval.assume_init()) }),
+            }
+        }
+        else
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+
+    fn setsockopt<SOCK>(self, fd: &SOCK) -> io::Result<()>
+    where 
+        SOCK: AsRawSocket
+    {
+        let (optval, option_len) = 
+            match self.opt
+            {
+                SockOpt::RcvTimeout(timeval) =>
+                    (ptr::addr_of!(timeval).cast(), size_of_val(&timeval) as i32),
+                SockOpt::SndTimeout(timeval) => 
+                    (ptr::addr_of!(timeval).cast(), size_of_val(&timeval) as i32),
+            };
+
+        let res = 
+            unsafe
+            {
+                windows_sys::Win32::Networking::WinSock
+                    ::setsockopt(fd.as_raw_socket() as usize, Self::LEVEL, self.optname, 
+                        optval, option_len) 
+            };
+
+        // more likely it will not fail
+        if res != SOCKET_ERROR
+        {
+            return Ok(());
+        }
+        else
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+}
+
+pub enum SockOpt
+{
+    RcvTimeout(TIMEVAL),
+    SndTimeout(TIMEVAL),
+}
+ 
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecvFlags(pub u32);
@@ -376,6 +609,7 @@ static WSA_STARTUP: LazyLock<WsaLazyThing> =
             WsaLazyThing
         }
     );
+
 
 /// An unix domain `stream` packet connection for Windows.
 /// 
@@ -503,6 +737,7 @@ impl io::Read for WindowsUnixStream
     }
 }
 
+
 #[cfg(feature = "xio-rs")]
 pub mod xio_unix_stream_enabled
 {
@@ -533,6 +768,16 @@ pub mod xio_unix_stream_enabled
 
 impl WindowsUnixStream
 {
+    unsafe 
+    fn from_raw_socket_checked(raw_sock: RawSocket) -> Self 
+    {
+        let os = unsafe{ OwnedSocket::from_raw_socket(raw_sock) };
+
+        let _ = &*WSA_STARTUP;
+
+        return Self{ sock: os };
+    }
+
     /// Connects to an unix stream server listening at `path`.
     ///
     /// This is a wrapper around [`connect_unix_addr()`](#method.connect_unix_addr)
@@ -573,10 +818,77 @@ impl WindowsUnixStream
         return Ok( Self{ sock: socket } );
     }
 
+    /// Creates a socket pair.
+    pub 
+    fn pair() -> Result<(Self, Self), io::Error> 
+    {
+        let dir = tempfile::tempdir()?;
+        let file_path = dir.path().join("so_pair");
+
+        let bind = WindowsUnixListener::bind(&file_path)?;
+       
+        let handle0: JoinHandle<Result<WindowsUnixStream, io::Error>> = 
+            thread::spawn(move ||
+                {
+                    let (s, a) = bind.accept_unix_addr()?;
+
+                    return Ok(s);
+                }
+            );
+        
+        let s1 = Self::connect(&file_path)?;
+
+        let s2 = 
+            handle0
+                .join()
+                .map_err(|e| 
+                    io::Error::new(ErrorKind::Other, format!("join error: {:?}", e))
+                )??;
+
+        return Ok( (s1, s2) );
+    }
+
+    pub 
+    fn try_clone(&self) -> io::Result<Self>
+    {
+        self.sock.try_clone().map(|osck| Self { sock: osck })
+    }
+
     pub 
     fn set_nonblocking(&self, nonblk: bool) -> io::Result<()>
     {
         set_nonblocking(self, nonblk)
+    }
+
+    ///  Cloexec
+    pub 
+    fn set_no_inherit(&self, no_inh: bool) -> io::Result<()>
+    {
+        set_handle_inherit(&self.sock, no_inh)
+    }
+
+    pub 
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()>
+    {
+        SockOpts::set_snd_timeout(&self.sock, timeout)
+    }
+
+    pub 
+    fn write_timeout(&self) -> io::Result<Option<Duration>>
+    {
+        SockOpts::get_snd_timeout(&self.sock)
+    }
+
+    pub 
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>
+    {
+        SockOpts::set_rcv_timeout(&self.sock, timeout)
+    }
+
+    pub 
+    fn read_timeout(&self) -> io::Result<Option<Duration>>
+    {
+        SockOpts::get_rcv_timeout(&self.sock)
     }
 
     /// Returns the address of this side of the connection.
@@ -652,6 +964,13 @@ impl WindowsUnixStream
     {
         take_error(self)
     }
+
+    /// Allows to shudown receiving/sending or both sides.
+    pub 
+    fn shutdown(&self, how: Shutdown) -> io::Result<()>
+    {
+        shutdown_sock(&self.sock, how)
+    }
 }
 
 /// An unix domain listener for [SOCK_STREAM] packet connections which requires
@@ -674,12 +993,13 @@ impl WindowsUnixStream
 /// drop(client);
 /// std::fs::remove_file(file_path).unwrap();
 /// ```
-#[derive(Debug)]
 #[repr(transparent)]
+#[derive(Debug)]
 pub struct WindowsUnixListener
 {
     sock: OwnedSocket,
 }
+
 
 impl FromRawSocket for WindowsUnixListener
 {
@@ -713,7 +1033,7 @@ impl From<OwnedSocket> for WindowsUnixListener
 
 impl From<WindowsUnixListener> for OwnedSocket
 {
-    fn from(value: WindowsUnixListener) -> Self 
+    fn from(mut value: WindowsUnixListener) -> Self 
     {
         return value.sock;
     }
@@ -737,12 +1057,13 @@ impl AsRawSocket for WindowsUnixListener
 
 impl IntoRawSocket for WindowsUnixListener
 {
-    fn into_raw_socket(self) -> RawSocket 
+    fn into_raw_socket(mut self) -> RawSocket 
     {
         return self.sock.into_raw_socket();
     }
 }
 
+/// A XIO [XioEventPipe] implementation.
 #[cfg(feature = "xio-rs")]
 pub mod xio_listener_enabled
 {
@@ -783,6 +1104,8 @@ impl WindowsUnixListener
     }
 
     /// Creates a socket that listens for seqpacket connections on the specified address.
+    /// 
+    /// [`addr`]: uds_fork::addr::UnixSocketAddr
     pub 
     fn bind_unix_addr(addr: &UnixSocketAddr) -> Result<Self, io::Error> 
     {
@@ -796,7 +1119,7 @@ impl WindowsUnixListener
         
         return Ok(Self{ sock: socket });
     }
-
+ 
     pub 
     fn set_nonblocking(&self, nonblk: bool) -> io::Result<()>
     {
@@ -817,6 +1140,87 @@ impl WindowsUnixListener
     }
 
     /// Accepts a new incoming connection to this listener.
+    /// 
+    /// Rustdocs: 
+    /// > This function will block the calling thread until a new Unix connection
+    /// > is established. When established, the corresponding [`WindowsUnixStream`] and
+    /// > the remote peer's address will be returned.
+    /// 
+    /// [`WindowsUnixStream`]: uds_fork::WindowsUnixStream
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use uds_fork::WindowsUnixListener;
+    ///
+    /// fn main() -> std::io::Result<()> 
+    /// {
+    ///     let listener = WindowsUnixListener::bind("/path/to/the/socket")?;
+    ///
+    ///     match listener.accept()
+    ///     {
+    ///         Ok((socket, addr)) => 
+    ///             println!("Got a client: {addr:?}"),
+    ///         Err(e) => 
+    ///             println!("accept function failed: {e:?}"),
+    ///     }
+    /// 
+    ///     return Ok(());
+    /// }
+    /// ```
+    #[inline]
+    pub 
+    fn accept(&self)-> Result<(WindowsUnixStream, UnixSocketAddr), io::Error> 
+    {
+        self.accept_unix_addr()
+    }
+
+    /// Creates a new independently owned handle to the underlying socket.
+    /// 
+    /// Rustdocs:
+    /// > The returned `WindowsUnixListener` is a reference to the same socket that this
+    /// > object references. Both handles can be used to accept incoming
+    /// > connections and options set on one listener will affect the other.
+    pub 
+    fn try_clone(&self) -> io::Result<Self> 
+    {
+        return Ok(
+            Self
+            {
+                sock: self.sock.try_clone()?
+            }
+        );
+    }
+
+    /// Accepts a new incoming connection to this listener.
+    /// 
+    /// Rustdocs: 
+    /// > This function will block the calling thread until a new Unix connection
+    /// > is established. When established, the corresponding [`WindowsUnixStream`] and
+    /// > the remote peer's address will be returned.
+    /// 
+    /// [`WindowsUnixStream`]: uds_fork::WindowsUnixStream
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use uds_fork::WindowsUnixListener;
+    ///
+    /// fn main() -> std::io::Result<()> 
+    /// {
+    ///     let listener = WindowsUnixListener::bind("/path/to/the/socket")?;
+    ///
+    ///     match listener.accept_unix_addr()
+    ///     {
+    ///         Ok((socket, addr)) => 
+    ///             println!("Got a client: {addr:?}"),
+    ///         Err(e) => 
+    ///             println!("accept function failed: {e:?}"),
+    ///     }
+    /// 
+    ///     return Ok(());
+    /// }
+    /// ```
     pub 
     fn accept_unix_addr(&self)-> Result<(WindowsUnixStream, UnixSocketAddr), io::Error> 
     {
@@ -834,5 +1238,118 @@ impl WindowsUnixListener
     fn take_error(&self) -> Result<Option<io::Error>, io::Error> 
     {
         take_error(self)
+    }
+
+    /// Returns an iterator over incoming connections.
+    /// 
+    /// Rustdoc:
+    /// > The iterator will never return [`None`] and will also not yield the
+    /// > peer's [`UnixSocketAddr`] structure.
+    /// 
+    /// ```no_run
+    /// use std::thread;
+    /// use uds_fork::{WindowsUnixStream, WindowsUnixListener};
+    ///
+    /// fn handle_client(stream: WindowsUnixStream) 
+    /// {
+    ///     // ...
+    /// }
+    ///
+    /// fn main() -> std::io::Result<()> 
+    /// {
+    ///     let listener = WindowsUnixListener::bind("/path/to/the/socket")?;
+    ///
+    ///     for stream in listener.incoming() 
+    ///     {
+    ///         match stream 
+    ///         {
+    ///             Ok(stream) => 
+    ///             {
+    ///                 thread::spawn(|| handle_client(stream));
+    ///             },
+    ///             Err(err) => 
+    ///             {
+    ///                 break;
+    ///             }
+    ///         }
+    ///     }
+    /// 
+    ///     return Ok(());
+    /// }
+    /// ```
+    pub 
+    fn incoming(&self) -> Incoming<'_> 
+    {
+        Incoming { listener: self }
+    }
+}
+
+/// A rust std API.
+/// 
+/// From Rustdocs:
+/// > An iterator over incoming connections to a [`UnixListener`].
+/// >
+/// > It will never return [`None`].
+/// 
+/// # Examples
+///
+/// ```no_run
+/// use std::thread;
+/// use uds_fork::{WindowsUnixStream, WindowsUnixListener};
+///
+/// fn handle_client(stream: WindowsUnixStream) {
+///     // ...
+/// }
+///
+/// fn main() -> std::io::Result<()> 
+/// {
+///     let listener = WindowsUnixListener::bind("/path/to/the/socket")?;
+///
+///     for stream in listener.incoming() 
+///     {
+///         match stream 
+///         {
+///             Ok(stream) => 
+///             {
+///                 thread::spawn(|| handle_client(stream));
+///             }
+///             Err(err) => 
+///             {
+///                 break;
+///             }
+///         }
+///     }
+///     return Ok(());
+/// }
+/// ```
+#[derive(Debug)]
+pub struct Incoming<'a> 
+{
+    listener: &'a WindowsUnixListener,
+}
+
+impl<'a> Iterator for Incoming<'a> 
+{
+    type Item = io::Result<WindowsUnixStream>;
+
+    fn next(&mut self) -> Option<io::Result<WindowsUnixStream>> 
+    {
+        Some(self.listener.accept().map(|s| s.0))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) 
+    {
+        (usize::MAX, None)
+    }
+}
+
+impl<'a> IntoIterator for &'a WindowsUnixListener 
+{
+    type Item = io::Result<WindowsUnixStream>;
+    type IntoIter = Incoming<'a>;
+
+    fn into_iter(self) -> Incoming<'a> 
+    {
+        self.incoming()
     }
 }

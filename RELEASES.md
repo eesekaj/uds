@@ -1,3 +1,11 @@
+Version 0.7.1 (2026-03-24)
+==========================
+* Hotfix: Cargo.toml default features. Removed default items.
+* Updated Cargo.toml versions of the deps.
+* Added 'Incoming' iterator for `UnixSeqpacketListener`
+* Added 'Incoming' iterator for `WindowsUnixListener`.
+* Added additional functionality including socket pair for `WindowsUnixSocket`.
+
 Version 0.7.0 (2026-03-21)
 ==========================
 * A Xio (Xio-rs) was added to the crate. It can be enaled by adding it to the features.
