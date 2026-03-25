@@ -1,3 +1,7 @@
+Version 0.7.2 (2026-03-24)
+==========================
+* Fixed docs.rs wrong crate name feature
+
 Version 0.7.1 (2026-03-24)
 ==========================
 * Hotfix: Cargo.toml default features. Removed default items.

@@ -26,7 +26,14 @@ Ancillary credentials and timestamps are not yet supported.
 ## Changelog
 
 <details>
-  <summery>Changelog </summery>
+  <summary>Changelog </summary>
+
+* Fixed docs.rs wrong crate name feature
+
+</details>
+
+<details>
+  <summary>Changelog Version 0.7.1 (2026-03-21) </summary>
 
 * Hotfix: Cargo.toml default features. Removed default items.
 * Updated Cargo.toml versions of the deps.
