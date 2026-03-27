@@ -4,10 +4,11 @@
 extern crate libc;
 extern crate uds_fork;
 
+mod common;
+
 use std::
 {
     io::{ErrorKind::*, Read, Write}, 
-    fs::remove_file, 
     env::consts::*, 
     os::
     {
@@ -22,6 +23,8 @@ use std::
 
 
 use uds_fork::{UnixDatagramExt, UnixStreamExt, UnixSocketAddr};
+
+use crate::common::make_temp_dir_no_file;
 
 #[cfg_attr(not(any(target_os="illumos", target_os="solaris")), test)]
 fn datagram_send_no_fds() {
@@ -309,6 +312,24 @@ fn datagram_pass_two_receive_one()
 }
 
 #[cfg_attr(not(any(target_os="illumos", target_os="solaris")), test)]
+fn datagram_pass_two_receive_two() 
+{
+    //! Tests somewhat that glibc's 64bit minimum payload length is handled
+    let (a, b) = UnixDatagram::pair().expect("create datagram socket pair");
+    let (aa, bb) = UnixDatagram::pair().map(|(a, b)| (OwnedFd::from(a), OwnedFd::from(b))).expect("create stream socket pair");
+    let aa_fd = aa.as_raw_fd();
+
+    a.send_fds(b"", vec![aa, bb]).expect("send one file descriptor");
+
+    let mut fd_buf = Vec::with_capacity(2);
+    let (bytes, fds) = b.recv_fds(&mut[0u8; 64], &mut fd_buf)
+        .expect("receive with ancillary buffer");
+    assert_eq!(bytes, 0);
+    assert_eq!(fds, 2);
+    assert_ne!(fd_buf.remove(0).as_raw_fd(), aa_fd);
+}
+
+#[cfg_attr(not(any(target_os="illumos", target_os="solaris")), test)]
 fn datagram_separate_payloads() {
     let (a, b) = UnixDatagram::pair().expect("create datagram socket pair");
     let (aa, _bb) = UnixDatagram::pair().map(|(a, b)| (OwnedFd::from(a), OwnedFd::from(b))).expect("create stream socket pair");
@@ -366,18 +387,19 @@ fn datagram_separate_payloads() {
 #[cfg_attr(not(any(target_os="illumos", target_os="solaris")), test)]
 fn unconnected_datagrams() 
 {
-    let p1 = "/tmp/unconnected_send.sock";
-    let p2 = "/tmp/unconnected_recv.sock";
+    let dir = make_temp_dir_no_file();
 
-    let _ = remove_file(p1);
-    let _ = remove_file(p2);
-    let send = UnixDatagram::bind(p1).expect("create first datagram socket");
-    let recv = UnixDatagram::bind(p2).expect("create second datagram socket");
+    let p1 = dir.path().join("unconnected_send.socket");
+
+    let p2 = dir.path().join("unconnected_recv.socket");
+
+    let send = UnixDatagram::bind(&p1).expect("create first datagram socket");
+    let recv = UnixDatagram::bind(&p2).expect("create second datagram socket");
     let unbound = UnixDatagram::unbound().expect("create unbound datagram socket");
     let unbound_fd = unbound.as_raw_fd();
 
-    let addr_send = UnixSocketAddr::new(p1).unwrap();
-    let addr_recv = UnixSocketAddr::new(p2).unwrap();
+    let addr_send = UnixSocketAddr::new(p1.as_os_str().to_str().unwrap()).unwrap();
+    let addr_recv = UnixSocketAddr::new(p2.as_os_str().to_str().unwrap()).unwrap();
    
 
     let mut byte_buf = [0; 20];
@@ -405,9 +427,6 @@ fn unconnected_datagrams()
         &addr_recv
     ).expect("send datagram from unbound to bound");
 
-
-    let _ = remove_file(p1);
-    let _ = remove_file(p2);
 }
 
 #[cfg_attr(not(any(target_os="illumos", target_os="solaris")), test)]

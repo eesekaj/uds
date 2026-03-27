@@ -128,12 +128,12 @@ fn send_ancillary<FD: AsFd>(
         }
 
         // stack buffer which should be big enough for most scenarios
-        //#[repr(C)]
-        //struct AncillaryFixedBuf(/*for alignment*/[cmsghdr; 0], );
+        #[repr(C, align(8))]
+        struct AncillaryFixedBuf<const N: usize>(/*for alignment*/[u8; N]);
         //const anc_cap = AncillaryBuf::MAX_STACK_CAPACITY / (mem::size_of::<cmsghdr>() + mem::size_of::<OwnedFd>());
 
         let ancillary_buf = 
-            [0_u8; unsafe { CMSG_SPACE(60) as usize}];
+            AncillaryFixedBuf( [0_u8; unsafe { CMSG_SPACE(60*size_of::<RawFd>() as u32) as usize}] );
         
         //AncillaryFixedBuf([], [mem::zeroed(); AncillaryBuf::MAX_STACK_CAPACITY / mem::size_of::<cmsghdr>()]);
 
@@ -142,34 +142,28 @@ fn send_ancillary<FD: AsFd>(
         let cap: Cow<'_, [u8]> = 
             if needed_capacity as usize >= mem::size_of_val(&ancillary_buf)
             {
-                /*let layout = 
-                        Layout::from_size_align(needed_capacity as usize, mem::align_of::<cmsghdr>())
-                            .unwrap();
+                let heap_buf = vec![0_u64; needed_capacity as usize];
 
-                let v = alloc::alloc(layout) as *mut u8;
-*/
-               // Cow::Owned( Vec::from_raw_parts(v, layout.size(), layout.size()) )
-               Cow::Owned(vec![0_u8; needed_capacity as usize])
+                assert_eq!(heap_buf.as_ptr() as usize % mem::align_of::<cmsghdr>(), 0, 
+                    "assertion trap: ancillary_buf in heap is not aligned! {:p}", heap_buf.as_ptr());
+
+                let (p, sz, cap) = heap_buf.into_raw_parts();
+                let heap_buf = Vec::<u8>::from_raw_parts(p.cast(), sz, cap);
+
+                assert_eq!(heap_buf.as_ptr() as usize % mem::align_of::<cmsghdr>(), 0, 
+                    "assertion trap: ancillary_buf in heap is not aligned! {:p}", heap_buf.as_ptr());
+
+                Cow::Owned(heap_buf)
             }
             else 
             {
-               Cow::Borrowed(ancillary_buf.as_slice())    
+                assert_eq!(ancillary_buf.0.as_ptr() as usize % mem::align_of::<cmsghdr>(), 0, "assertion trap: ancillary_buf is not aligned!");
+
+                Cow::Borrowed(ancillary_buf.0.as_slice())    
             };
 
         if needed_capacity != 0 
         {
-            /*if needed_capacity as usize <= mem::size_of::<AncillaryFixedBuf>() 
-            {
-                msg.msg_control = 
-                    &mut ancillary_buf.1 as *mut [u8; AncillaryBuf::MAX_STACK_CAPACITY] as *mut c_void;
-            } 
-            else 
-            {
-                
-
-                msg.msg_control = alloc::alloc(layout) as *mut c_void;
-            }*/
-
             msg.msg_control = cap.as_ptr() as *mut c_void;
 
             #[cfg(not(any(target_os="illumos", target_os="solaris")))] 
@@ -184,15 +178,31 @@ fn send_ancillary<FD: AsFd>(
                 {
                     if let Some(creds) = creds 
                     {
+                        use libc::ucred;
+
                         header.cmsg_level = SOL_SOCKET;
                         header.cmsg_type = SCM_CREDENTIALS;
                         header.cmsg_len = CMSG_LEN(mem::size_of_val(&creds) as u32) as ControlLen;
                         
-                        *(CMSG_DATA(header) as *mut c_void as *mut _) = creds;
+                        let data = CMSG_DATA(header) as *mut c_void as *mut ucred;
+
+                        if data.is_aligned() == false
+                        {
+                            ptr::write_unaligned(data, creds);
+                        }
+                        else
+                        {
+                            ptr::write(data, creds);
+                        }
+                       // *(CMSG_DATA(header) as *mut c_void as *mut _) = creds;
                         
                         let header_ptr = CMSG_NXTHDR(&mut msg, header);
-                        assert!(!header_ptr.is_null(), "CMSG_NXTHDR returned unexpected NULL pointer");
-                        header = &mut*header_ptr;
+                        if fds.len() > 0 
+                        {
+                            assert_eq!(header_ptr.is_null(), false, "CMSG_NXTHDR returned unexpected NULL pointer");
+                        
+                            header = &mut*header_ptr;
+                        }
                     }
                 }
 
@@ -208,7 +218,15 @@ fn send_ancillary<FD: AsFd>(
                     
                     for fd in fds.into_iter().map(|fd| fd.into_raw_fd()) 
                     {
-                        ptr::write_unaligned(dst, fd);
+                        if dst.is_aligned() == false
+                        {
+                            ptr::write_unaligned(dst, fd);
+                        }
+                        else
+                        {
+                            ptr::write(dst, fd);
+                        }
+
                         dst = dst.add(1);
                     }
                 }
@@ -217,15 +235,6 @@ fn send_ancillary<FD: AsFd>(
 
         let result = 
             cvt_r!(sendmsg(socket.as_fd().as_raw_fd(), &msg, flags | MSG_NOSIGNAL));
-
-        // this should be done automatically by dropping Cow
-        /*if needed_capacity as usize > mem::size_of::<AncillaryFixedBuf>() 
-        {
-            let layout = 
-                Layout::from_size_align(needed_capacity as usize, mem::align_of::<cmsghdr>()).unwrap();
-            
-            alloc::dealloc(msg.msg_control as *mut u8, layout);
-        }*/
 
         result.map(|sent| sent as usize )
     }
@@ -497,6 +506,8 @@ impl<'a> Iterator for Ancillary<'a>
     {
         unsafe 
         {
+            use std::mem::MaybeUninit;
+
             if self.next_message.is_null() 
             {
                 return None;
@@ -504,9 +515,18 @@ impl<'a> Iterator for Ancillary<'a>
 
             let msg_bytes = (*self.next_message).cmsg_len as usize;
             let payload_bytes = msg_bytes - CMSG_LEN(0) as usize;
+            let msg = 
+                if self.next_message.is_aligned() == false
+                {
+                    self.next_message.read_unaligned()
+                }
+                else
+                {
+                    self.next_message.read()
+                };
 
             let item = 
-                match ((*self.next_message).cmsg_level, (*self.next_message).cmsg_type) 
+                match (msg.cmsg_level, msg.cmsg_type) 
                 {
                     (SOL_SOCKET, SCM_RIGHTS) => 
                     {
@@ -514,14 +534,12 @@ impl<'a> Iterator for Ancillary<'a>
                         // pointer is aligned due to the cmsg header
                         let first_fd = CMSG_DATA(self.next_message) as *const c_void;
                         let first_fd = first_fd.cast::<RawFd>();
-                        
                         // consume onece the FD's
                         AncillaryItem::new_fds(first_fd, num_fds)
                     }
                     #[cfg(any(target_os="linux", target_os="android"))]
                     (SOL_SOCKET, SCM_CREDENTIALS) => 
                     {
-                        // FIXME check payload size?
                         let creds_ptr = CMSG_DATA(self.next_message) as *const c_void;
 
                         debug_assert!(
@@ -531,7 +549,17 @@ impl<'a> Iterator for Ancillary<'a>
 
                         let creds_ptr = creds_ptr as *const RawReceivedCredentials;
 
-                        AncillaryItem::Credentials(ReceivedCredentials::from_raw(*creds_ptr))
+                        let creds = 
+                            if creds_ptr.is_aligned() == false
+                            {
+                                creds_ptr.read_unaligned()
+                            }
+                            else
+                            {
+                                creds_ptr.read()
+                            };
+
+                        AncillaryItem::Credentials(ReceivedCredentials::from_raw(creds))
                     }
                     _ => 
                         AncillaryItem::Unsupported,
@@ -622,14 +650,16 @@ fn recv_ancillary<'ancillary_buf, FD: AsFd>(
 
             if ancillary_buf.as_ptr() as usize % mem::align_of::<cmsghdr>() != 0 
             {
-                let msg = "ancillary buffer is not properly aligned";
-                return Err(io::Error::new(ErrorKind::InvalidInput, msg));
+                return Err(
+                    io::Error::new(ErrorKind::InvalidInput, "ancillary buffer is not properly aligned")
+                );
             }
 
             if ancillary_buf.len() > ControlLen::max_value() as usize 
             {
-                let msg = "ancillary buffer is too big";
-                return Err(io::Error::new(ErrorKind::InvalidInput, msg));
+                return Err(
+                    io::Error::new(ErrorKind::InvalidInput, "ancillary buffer is too big")
+                );
             }
 
             msg.msg_control = ancillary_buf.as_mut_ptr() as *mut c_void;
@@ -740,3 +770,56 @@ fn recv_fds<FD: AsFd>(
     return 
         Ok((num_bytes, msg_truc, fd_buf.as_ref().map_or(0, |f| f.len())));
 }
+
+/*
+#[cfg(test)]
+mod tests
+{
+    use std::{io::IoSliceMut, os::fd::{OwnedFd, RawFd}};
+
+    use libc::getpid;
+
+    use crate::{UnixSeqpacketConn, ancillary::{AncillaryBuf, AncillaryItem, recv_ancillary, send_ancillary}, credentials::SendCredentials};
+
+
+    #[cfg_attr(
+        any(
+            target_os="linux", target_os="android",
+            target_os="freebsd", target_os="dragonfly",
+            target_os="openbsd", target_os="netbsd",
+            target_os="illumos", target_os="solaris"
+        ),
+        test
+    )]
+    fn peer_credentials_of_seqpacket_pair2() {
+        let (a, b) = UnixSeqpacketConn::pair().expect("create unix seqpacket pair");
+        let (a2, b2) = UnixSeqpacketConn::pair().map(|(a, b)| (OwnedFd::from(a), OwnedFd::from(b))).expect("create stream socket pair");
+        let creds = SendCredentials::Custom { pid: getpid(), uid: (), gid: () }
+
+        send_ancillary(&a, None, 0, &[], vec![], Some(creds)).unwrap();
+
+        let mut fd_buf: Vec<OwnedFd> = Vec::with_capacity(2);
+
+        let mut ancillary_buf = 
+            AncillaryBuf::with_fd_capacity(
+                fd_buf.capacity()
+            ).unwrap();    
+        let mut slicebuf = vec![0u8; 64];
+        let (num_bytes, ancillary) = 
+            recv_ancillary(&b, None, 0, &mut[IoSliceMut::new(&mut slicebuf)], &mut ancillary_buf).unwrap();
+
+        println!("ffff");
+
+        for message in ancillary 
+        {
+            if let AncillaryItem::Fds(fds) = message 
+            {
+                println!("fd");
+            }
+            else if let AncillaryItem::Credentials(d) = message
+            {
+                println!("creds");
+            }
+        }
+    }
+}*/

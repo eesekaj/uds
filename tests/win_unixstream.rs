@@ -1,18 +1,12 @@
 #![cfg(windows)]
+mod common;
 
-use std::{io::IoSliceMut, path::PathBuf};
+use std::{io::IoSliceMut};
 
-use tempfile::TempDir;
 use uds_fork::{RecvFlags, WindowsUnixListener, WindowsUnixStream};
 use windows_sys::Win32::Networking::WinSock::{AF_UNIX, SOCK_STREAM};
 
-fn make_temp_dir(path: &str) -> (PathBuf, TempDir)
-{
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join(path);
-
-    return (path, dir);
-}
+use crate::common::make_temp_dir;
 
 #[test]
 fn test_listener()

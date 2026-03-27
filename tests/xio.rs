@@ -5,6 +5,9 @@ use std::{fs, time::Duration};
 use uds_fork::{UnixSeqpacketConn, UnixSeqpacketListener};
 use xio_rs::{EsInterface, XioChannel, XioEventDecoder, XioEventUid, XioEventsInterface, XioPollRegistry, XioTimeout};
 
+mod common;
+
+use crate::common::make_temp_dir;
 
 fn test_socket<ESS: EsInterface>()
 {
@@ -12,10 +15,9 @@ fn test_socket<ESS: EsInterface>()
 
     let mut event_buf = XioPollRegistry::<ESS>::allocate_events(1.try_into().unwrap());
 
-    let sock_path = "/tmp/test123.sock";
-    let _ = fs::remove_file(sock_path);
+    let (sock_path, _dir) = make_temp_dir("test123.sock");
 
-    let mut listener = UnixSeqpacketListener::bind(sock_path).unwrap();
+    let mut listener = UnixSeqpacketListener::bind(&sock_path).unwrap();
 
     let ev = XioEventUid::manual(1);
     reg.get_registry().en_register(&mut listener, ev, XioChannel::INPUT).unwrap();
@@ -27,7 +29,7 @@ fn test_socket<ESS: EsInterface>()
             {
                 std::thread::sleep(Duration::from_millis(700));
 
-                let s = UnixSeqpacketConn::connect(sock_path).unwrap();
+                let s = UnixSeqpacketConn::connect(&sock_path).unwrap();
 
                 s.send(&[1,2,3,4,5,6,7,8,9]).unwrap();
 
@@ -53,9 +55,6 @@ fn test_socket<ESS: EsInterface>()
     assert_eq!(n, send_buf.len());
 
     handle0.join().unwrap();
-
-    let _ = fs::remove_file(sock_path);
-
 }
 
 #[cfg(target_os = "linux")]
@@ -99,10 +98,9 @@ fn test_socket_wrap<ESS: EsInterface>()
 
     let mut event_buf = XioPollRegistry::<ESS>::allocate_events(1.try_into().unwrap());
 
-    let sock_path = "/tmp/test123.sock";
-    let _ = fs::remove_file(sock_path);
+    let (sock_path, _dir) = make_temp_dir("test123.sock");
 
-    let listener = UnixSeqpacketListener::bind(sock_path).unwrap();
+    let listener = UnixSeqpacketListener::bind(&sock_path).unwrap();
 
     let ev = XioEventUid::manual(1);
     let mut listener = 
@@ -116,7 +114,7 @@ fn test_socket_wrap<ESS: EsInterface>()
             {
                 std::thread::sleep(Duration::from_millis(700));
 
-                let s = UnixSeqpacketConn::connect(sock_path).unwrap();
+                let s = UnixSeqpacketConn::connect(&sock_path).unwrap();
 
                 s.send(&[1,2,3,4,5,6,7,8,9]).unwrap();
 

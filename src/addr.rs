@@ -296,7 +296,8 @@ impl UnixSocketAddr
     ///
     /// Unnamed address:
     ///
-    /// ```
+    #[cfg_attr(not(target_family="windows"), doc="```")]
+    #[cfg_attr(target_family="windows", doc="```no_run")]
     /// # use uds_fork::UnixSocketAddr;
     /// assert!(UnixSocketAddr::new("").unwrap().is_unnamed());
     /// ```
@@ -870,22 +871,24 @@ impl UnixSocketAddr
     #[cfg_attr(not(any(target_os="linux", target_os="android")), doc="```ignore")]
     /// use uds_fork::{UnixDatagramExt, UnixSocketAddr, UnixSocketAddrRef};
     /// use std::os::unix::net::UnixDatagram;
+    /// use tempfile::TempDir;
     /// use std::path::Path;
+    /// 
+    /// let dir = tempfile::tempdir().unwrap();
+    /// let path = dir.path().join("dgram.socket");
     ///
-    /// # let _ = std::fs::remove_file("/tmp/dgram.socket");
-    /// let receiver = UnixDatagram::bind("/tmp/dgram.socket").expect("create datagram socket");
+    /// let receiver = UnixDatagram::bind(&path).expect("create datagram socket");
     /// assert_eq!(
     ///     receiver.local_unix_addr().unwrap().as_ref(),
-    ///     UnixSocketAddrRef::Path(Path::new("/tmp/dgram.socket"))
+    ///     UnixSocketAddrRef::Path(&path)
     /// );
     ///
     /// let sender = UnixDatagram::unbound().expect("create unbound datagram socket");
-    /// sender.send_to(b"I can't hear you", "/tmp/dgram.socket").expect("send");
+    /// sender.send_to(b"I can't hear you", &path).expect("send");
     ///
     /// let mut buf = [0; 100];
     /// let (len, addr) = receiver.recv_from_unix_addr(&mut buf).unwrap();
     /// assert_eq!(addr.as_ref(), UnixSocketAddrRef::Unnamed);
-    /// # std::fs::remove_file("/tmp/dgram.socket").expect("clean up socket file");
     /// ```
     pub 
     fn as_ref(&self) -> UnixSocketAddrRef<'_>

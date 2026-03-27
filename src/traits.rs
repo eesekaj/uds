@@ -319,15 +319,19 @@ pub trait UnixDatagramExt: AsFd + AsRawFd + FromRawFd
     /// use std::os::unix::net::UnixDatagram;
     /// use uds_fork::{UnixSocketAddr, UnixDatagramExt};
     ///
-    /// let _ = std::fs::remove_file("/tmp/echo.sock");
-    /// let server = UnixDatagram::bind("/tmp/echo.sock").expect("create server socket");
+    /// let dir = tempfile::tempdir().unwrap();
+    /// let mut file_path = dir.path().join("echo.sock");
+    /// 
+    /// let server = UnixDatagram::bind(&file_path).expect("create server socket");
     ///
+    /// let mut cli_file_path = dir.path().join("echo_client.sock");
+    /// 
     /// let client_addr = UnixSocketAddr::new("@echo_client")
-    ///     .or(UnixSocketAddr::new("/tmp/echo_client.sock"))
+    ///     .or(UnixSocketAddr::new(cli_file_path.as_os_str().to_str().unwrap()))
     ///     .unwrap();
     /// let client = UnixDatagram::unbound().expect("create client ocket");
     /// client.bind_to_unix_addr(&client_addr).expect("create client socket");
-    /// client.connect_to_unix_addr(&UnixSocketAddr::new("/tmp/echo.sock").unwrap())
+    /// client.connect_to_unix_addr(&UnixSocketAddr::new(file_path.as_os_str().to_str().unwrap()).unwrap())
     ///     .expect("connect to server");
     /// client.send(b"hello").expect("send");
     ///
@@ -338,7 +342,7 @@ pub trait UnixDatagramExt: AsFd + AsRawFd + FromRawFd
     /// let len = client.recv(&mut buf).expect("receive response");
     /// assert_eq!(&buf[..len], "hello".as_bytes());
     ///
-    /// let _ = std::fs::remove_file("/tmp/echo.sock");
+    /// let _ = std::fs::remove_file(&file_path);
     /// if let Some(client_path) = client_addr.as_pathname() {
     ///     let _ = std::fs::remove_file(client_path);
     /// }
@@ -430,15 +434,18 @@ pub trait UnixDatagramExt: AsFd + AsRawFd + FromRawFd
     #[cfg_attr(not(any(target_os="linux", target_os="android")), doc="```no_run")]
     /// use std::os::unix::net::UnixDatagram;
     /// use std::io::IoSliceMut;
+    /// use tempfile::TempDir;
     /// use uds_fork::{UnixDatagramExt, UnixSocketAddr};
-    ///
-    /// # let _ = std::fs::remove_file("/tmp/datagram_server.sock");
-    /// let server = UnixDatagram::bind("/tmp/datagram_server.sock").unwrap();
+    /// 
+    /// let dir = tempfile::tempdir().unwrap();
+    /// let mut path = dir.path().join("datagram_server.sock");
+    /// 
+    /// let server = UnixDatagram::bind(&path).unwrap();
     ///
     /// // get a random abstract address on Linux
     /// let client = UnixDatagram::unbound().unwrap();
     /// client.bind_to_unix_addr(&UnixSocketAddr::new_unspecified()).unwrap();
-    /// client.connect("/tmp/datagram_server.sock").unwrap();
+    /// client.connect(&path).unwrap();
     /// client.send(b"headerbodybody").unwrap();
     ///
     /// let (mut buf_a, mut buf_b) = ([0; 6], [0; 12]);
@@ -449,7 +456,6 @@ pub trait UnixDatagramExt: AsFd + AsRawFd + FromRawFd
     /// assert_eq!(&buf_a, b"header");
     /// assert_eq!(&buf_b[..8], b"bodybody");
     /// #
-    /// # std::fs::remove_file("/tmp/datagram_server.sock").unwrap();
     /// ```
     fn peek_vectored_from_unix_addr(&self,  bufs: &mut[IoSliceMut]) -> Result<(usize, UnixSocketAddr), io::Error> 
     {

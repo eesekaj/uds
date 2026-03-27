@@ -28,6 +28,14 @@ Ancillary credentials and timestamps are not yet supported.
 <details>
   <summary>Changelog </summary>
 
+* Fixed a potential memory unligned access at send_ancillary() and recv_ancillary part in ancilliary.rs
+* Added temp dir in tests to avoid leaving the sockets.
+
+</details>
+
+<details>
+  <summary>Changelog Version 0.7.2 (2026-03-24)</summary>
+
 * Fixed docs.rs wrong crate name feature
 
 </details>
@@ -92,23 +100,6 @@ Ancillary credentials and timestamps are not yet supported.
 
 </details>
 
-<details>
-  <summary>Changelog Version 0.5.1 (2026-01-18)</summary>
-
-* Fixed compilation errors on FreeBSD.
-* ! FreeBSD 15 demonstrates strange behaviour with message trancation and empty messages which 
-is not compatiable Linux and FreeBSD 14.
-* send_ancillary() memory managment modified
-</details>
-
-<details>
-  <summary>Changelog Version 0.5.0 (2026-01-16)</summary>
-
-* A crate was forked due to stale status.
-* Moved to Rust 2024
-* Added OwnedFd and BorrowedFd to comply with Rust specifications.
-* Removed MIO and Tokio. Use AsyncFD and implement MIO for the type youself. (Maybe MIO will be readded later).
-</details>
 
 ## Examples
 

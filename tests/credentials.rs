@@ -1,9 +1,10 @@
 #![cfg(target_family = "unix")]
 #![allow(unused)] // when not applicable, tests should still compile
 
+mod common;
+
 use std::os::unix::net::{UnixListener, UnixStream, UnixDatagram};
 use std::io::{self, ErrorKind::*};
-use std::fs::remove_file;
 
 extern crate uds_fork;
 use uds_fork::{ConnCredentials, UnixStreamExt, UnixDatagramExt};
@@ -11,6 +12,8 @@ use uds_fork::{UnixSeqpacketListener, UnixSeqpacketConn};
 
 extern crate libc;
 use libc::{getpid, geteuid, getegid, getgid, getgroups};
+
+use crate::common::{make_temp_dir, make_temp_dir_no_file};
 
 #[cfg_attr(
     not(any(
@@ -86,12 +89,13 @@ fn assert_credentials_matches_current_process(creds: &ConnCredentials,  socket_t
 }
 
 #[test]
-fn peer_credentials_of_stream_conn() {
-    let path = "/tmp/stream_credentials.socket";
-    let _ = remove_file(path);
-    let listener = UnixListener::bind(path).expect("create socket file");
-    let client = UnixStream::connect(path).expect("connect");
-    remove_file(path).expect("delete socket file");
+fn peer_credentials_of_stream_conn() 
+{
+    let (path, _dir) = make_temp_dir("stream_credentials.socket");
+
+    let listener = UnixListener::bind(&path).expect("create socket file");
+    let client = UnixStream::connect(&path).expect("connect");
+
     let creds = client.initial_peer_credentials().expect("get credentials of server");
     assert_credentials_matches_current_process(&creds, "stream conn");
     let (server, _) = listener.accept().expect("accept");
@@ -100,7 +104,8 @@ fn peer_credentials_of_stream_conn() {
 }
 
 #[test]
-fn peer_credentials_of_stream_pair() {
+fn peer_credentials_of_stream_pair() 
+{
     let (a, b) = UnixStream::pair().expect("create unix stream pair");
     match a.initial_peer_credentials() {
         Ok(creds) => {
@@ -123,12 +128,13 @@ fn peer_credentials_of_stream_pair() {
     ),
     test
 )]
-fn peer_credentials_of_seqpacket_conn() {
-    let path = "/tmp/seqpacket_credentials.socket";
-    let _ = remove_file(path);
-    let listener = UnixSeqpacketListener::bind(path).expect("create socket file");
-    let client = UnixSeqpacketConn::connect(path).expect("connect");
-    remove_file(path).expect("delete socket file");
+fn peer_credentials_of_seqpacket_conn() 
+{
+    let (path, _dir) = make_temp_dir("seqpacket_credentials.socket");
+
+    let listener = UnixSeqpacketListener::bind(&path).expect("create socket file");
+    let client = UnixSeqpacketConn::connect(&path).expect("connect");
+
     let creds = client.initial_peer_credentials().expect("get credentials of server");
     assert_credentials_matches_current_process(&creds, "stream conn");
     let (server, _) = listener.accept_unix_addr().expect("accept");
@@ -160,7 +166,8 @@ fn peer_credentials_of_seqpacket_pair() {
 }
 
 #[test]
-fn pair_credentials_of_datagram_socketpair() {
+fn pair_credentials_of_datagram_socketpair() 
+{
     let (a, b) = UnixDatagram::pair().expect("create unix datagram socket pair");
     match a.initial_pair_credentials() {
         Ok(creds) => {
@@ -177,11 +184,11 @@ fn pair_credentials_of_datagram_socketpair() {
 #[test]
 fn no_peer_credentials_of_unconnected_datagram_socket() 
 {
-    let p1 = "/tmp/datagram_credentials.socket";
-    let _ = remove_file(p1);
-    let socket = UnixDatagram::bind(p1)
+    let (path, _dir) = make_temp_dir("datagram_credentials.socket");
+
+    let socket = UnixDatagram::bind(&path)
         .expect("create unix datagram socket");
-    remove_file(p1).unwrap();
+
     let err = socket.initial_pair_credentials()
         .expect_err("get credentials of unconnected datagram socket");
     assert!(
@@ -194,12 +201,14 @@ fn no_peer_credentials_of_unconnected_datagram_socket()
 #[test]
 fn no_peer_credentials_of_regularly_connected_datagram_socket() 
 {
-    let a_pathname = "/tmp/datagram_credentials_a.socket";
-    let b_pathname = "/tmp/datagram_credentials_b.socket";
-    let _ = remove_file(a_pathname);
-    let _ = remove_file(b_pathname);
-    let a = UnixDatagram::bind(a_pathname).expect("create unix datagram socket");
-    let b = UnixDatagram::bind(b_pathname).expect("create unix datagram socket");
+    let dir = make_temp_dir_no_file();
+
+    let a_pathname = dir.path().join("datagram_credentials_a.socket");
+
+    let b_pathname = dir.path().join("datagram_credentials_b.socket");
+
+    let a = UnixDatagram::bind(&a_pathname).expect("create unix datagram socket");
+    let b = UnixDatagram::bind(&b_pathname).expect("create unix datagram socket");
     a.connect(b_pathname).expect("connect a to b");
     b.connect(a_pathname).expect("connect b to a");
 
@@ -217,9 +226,6 @@ fn no_peer_credentials_of_regularly_connected_datagram_socket()
         ||  err.kind() == InvalidInput // failed properly
         ||  err.to_string().contains("not supported") // failed with ENOTSUP
     );
-    
-    remove_file(a_pathname).expect("delete socket file");
-    remove_file(b_pathname).expect("delete socket file");
 }
 
 
@@ -252,3 +258,4 @@ fn peer_selinux_context()
         }
     }
 }
+

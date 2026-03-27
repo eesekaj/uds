@@ -983,7 +983,6 @@ impl WindowsUnixStream
 ///
 /// ```no_run
 /// let file_path = "server_test.sock";
-/// let _ = std::fs::remove_file(file_path);
 /// let listener = uds_fork::WindowsUnixListener::bind(file_path)
 ///     .expect("Create seqpacket listener");
 /// let client = uds_fork::WindowsUnixStream::connect(file_path).unwrap();
@@ -991,7 +990,6 @@ impl WindowsUnixStream
 /// conn.send(b"Welcome").unwrap();
 /// std::thread::sleep(std::time::Duration::from_secs(1));
 /// drop(client);
-/// std::fs::remove_file(file_path).unwrap();
 /// ```
 #[repr(transparent)]
 #[derive(Debug)]

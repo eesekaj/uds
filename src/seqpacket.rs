@@ -77,19 +77,19 @@ use crate::credentials::*;
 #[cfg_attr(not(target_vendor="apple"), doc="```")]
 #[cfg_attr(target_vendor="apple", doc="```no_run")]
 /// use uds_fork::{UnixSeqpacketListener, UnixSeqpacketConn};
-///
-/// let file_path = "/tmp/seqpacket.socket";
-/// let _ = std::fs::remove_file(file_path); // pre-emptively delete just in case
-/// let listener = UnixSeqpacketListener::bind(file_path)
+/// use tempfile::TempDir;
+/// 
+/// let dir = tempfile::tempdir().unwrap();
+/// let mut file_path = dir.path().join("seqpacket.socket");
+/// 
+/// let listener = UnixSeqpacketListener::bind(&file_path)
 ///     .expect("create seqpacket listener");
-/// let conn = UnixSeqpacketConn::connect(file_path)
+/// let conn = UnixSeqpacketConn::connect(&file_path)
 ///     .expect("connect to seqpacket listener");
 ///
 /// let message = "Hello, listener";
 /// let sent = conn.send(message.as_bytes()).unwrap();
 /// assert_eq!(sent, message.len());
-///
-/// std::fs::remove_file(file_path).unwrap(); // clean up after ourselves
 /// ```
 ///
 /// Connect to a listener on an abstract address:
@@ -733,14 +733,16 @@ impl UnixSeqpacketConn
 ///
 #[cfg_attr(not(target_vendor="apple"), doc="```")]
 #[cfg_attr(target_vendor="apple", doc="```no_run")]
-/// let file_path = "/tmp/seqpacket_listener.socket";
-/// let _ = std::fs::remove_file(file_path);
-/// let listener = uds_fork::UnixSeqpacketListener::bind(file_path)
+/// use tempfile::TempDir;
+/// 
+/// let dir = tempfile::tempdir().unwrap();
+/// let mut file_path = dir.path().join("seqpacket_listener.socket");
+/// 
+/// let listener = uds_fork::UnixSeqpacketListener::bind(&file_path)
 ///     .expect("Create seqpacket listener");
-/// let _client = uds_fork::UnixSeqpacketConn::connect(file_path).unwrap();
+/// let _client = uds_fork::UnixSeqpacketConn::connect(&file_path).unwrap();
 /// let (conn, _addr) = listener.accept_unix_addr().unwrap();
 /// conn.send(b"Welcome").unwrap();
-/// # std::fs::remove_file(file_path).unwrap();
 /// ```
 /// 
 /// ### Xio
@@ -1105,14 +1107,15 @@ impl UnixSeqpacketListener
     #[cfg_attr(target_vendor="apple", doc="```no_run")]
     /// # use std::io::ErrorKind;
     /// # use uds_fork::{UnixSocketAddr, UnixSeqpacketListener};
+    /// use tempfile::TempDir;
     /// 
-    /// let file_path = "/tmp/nonblocking_seqpacket_listener1.socket";
-    /// let addr = UnixSocketAddr::from_path(file_path).unwrap();
-    /// let _ = std::fs::remove_file(file_path);
+    /// let dir = tempfile::tempdir().unwrap();
+    /// let mut file_path = dir.path().join("nonblocking_seqpacket_listener1.socket");
+    /// 
+    /// let addr = UnixSocketAddr::from_path(&file_path).unwrap();
     /// let listener = UnixSeqpacketListener::bind_unix_addr(&addr).expect("create listener");
     /// listener.set_nonblocking(true).expect("enable noblocking mode");
     /// assert_eq!(listener.accept_unix_addr().unwrap_err().kind(), ErrorKind::WouldBlock);
-    /// # std::fs::remove_file(file_path).expect("delete socket file");
     /// ```
     pub 
     fn set_nonblocking(&self,  nonblocking: bool) -> Result<(), io::Error> 
@@ -1535,23 +1538,22 @@ impl NonblockingUnixSeqpacketConn
 #[cfg_attr(not(target_vendor="apple"), doc="```")]
 #[cfg_attr(target_vendor="apple", doc="```no_run")]
 /// use uds_fork::nonblocking::{UnixSeqpacketListener, UnixSeqpacketConn};
+/// use tempfile::TempDir;
 /// use std::io::ErrorKind;
 ///
-/// let file_path = "/tmp/nonblocking_seqpacket_listener2.socket";
+/// let dir = tempfile::tempdir().unwrap();
+/// let mut file_path = dir.path().join("nonblocking_seqpacket_listener2.socket");
 /// 
-/// let _ = std::fs::remove_file(file_path);
-/// let listener = UnixSeqpacketListener::bind(file_path)
+/// let listener = UnixSeqpacketListener::bind(&file_path)
 ///     .expect("Cannot create nonblocking seqpacket listener");
 ///
 /// // doesn't block if no connections are waiting:
 /// assert_eq!(listener.accept_unix_addr().unwrap_err().kind(), ErrorKind::WouldBlock);
 ///
 /// // returned connections are nonblocking:
-/// let _client = UnixSeqpacketConn::connect(file_path).unwrap();
+/// let _client = UnixSeqpacketConn::connect(&file_path).unwrap();
 /// let (conn, _addr) = listener.accept_unix_addr().unwrap();
 /// assert_eq!(conn.recv(&mut[0u8; 20]).unwrap_err().kind(), ErrorKind::WouldBlock);
-/// #
-/// # std::fs::remove_file(file_path).unwrap();
 /// ```
 #[derive(Debug)]
 #[repr(transparent)]
@@ -1668,13 +1670,14 @@ impl NonblockingUnixSeqpacketListener
     #[cfg_attr(target_vendor="apple", doc="```no_run")]
     /// # use uds_fork::nonblocking::UnixSeqpacketListener;
     /// # use std::io::ErrorKind;
-    /// #
-    /// let file_path = "/tmp/nonblocking_seqpacket_listener3.socket";
-    /// let _ = std::fs::remove_file(file_path);
-    /// let listener = UnixSeqpacketListener::bind(file_path)
+    /// # use tempfile::TempDir;
+    /// 
+    /// let dir = tempfile::tempdir().unwrap();
+    /// let mut file_path = dir.path().join("nonblocking_seqpacket_listener3.socket");
+    /// 
+    /// let listener = UnixSeqpacketListener::bind(&file_path)
     ///     .expect("Cannot create nonblocking seqpacket listener");
     /// assert_eq!(listener.accept_unix_addr().unwrap_err().kind(), ErrorKind::WouldBlock);
-    /// std::fs::remove_file(file_path).unwrap();
     /// ```
     pub 
     fn accept_unix_addr(&self) -> Result<(NonblockingUnixSeqpacketConn, UnixSocketAddr), io::Error> 

@@ -1,3 +1,9 @@
+Version 0.7.3 (2026-03-26)
+==========================
+* Fixed a potential memory unligned access at send_ancillary() and recv_ancillary part in ancilliary.rs
+* Added temp dir in tests to avoid leaving the socket files.
+
+
 Version 0.7.2 (2026-03-24)
 ==========================
 * Fixed docs.rs wrong crate name feature

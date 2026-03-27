@@ -5,11 +5,11 @@ use std::time::Duration;
 use uds_fork::{WindowsUnixListener, WindowsUnixStream};
 use xio_rs::{EsInterface, XioChannel, XioEventDecoder, XioEventUid, XioEventsInterface, XioPollRegistry, XioTimeout};
 
+mod common;
+
 fn test_socket<ESS: EsInterface>()
 {   
-    let sock_path = "server3.sock";
-
-    let _ = std::fs::remove_file(sock_path);
+    let (sock_path, _dir) = make_temp_dir("server3.sock");
 
     let mut reg = XioPollRegistry::<ESS>::new().unwrap();
 
@@ -27,7 +27,7 @@ fn test_socket<ESS: EsInterface>()
             {
                 std::thread::sleep(Duration::from_millis(700));
 
-                let s = WindowsUnixStream::connect(sock_path).unwrap();
+                let s = WindowsUnixStream::connect(&sock_path).unwrap();
 
                 s.send(&[1,2,3,4,5,6,7,8,9]).unwrap();
 
@@ -54,7 +54,6 @@ fn test_socket<ESS: EsInterface>()
 
     handle0.join().unwrap();
 
-    let _ = std::fs::remove_file(sock_path);  
 }
 
 

@@ -1,5 +1,7 @@
 #![cfg(all(not(target_vendor="apple"), target_family = "unix"))]
 
+mod common;
+
 use std::
 {
     io::{ErrorKind::{self, *}, IoSlice, IoSliceMut}, net::Shutdown, os::fd::{FromRawFd, OwnedFd}, time::{Duration, Instant}
@@ -9,14 +11,15 @@ use std::
 use uds_fork::nonblocking::UnixSeqpacketConn as NonblockingUnixSeqpacketConn;
 use uds_fork::{UnixSeqpacketConn, UnixSeqpacketListener};
 
+use crate::common::make_temp_dir;
+
 #[test]
 fn seqpacket_is_supported() 
-{    
-    let path = "/tmp/seqpacket1.exists.socket";
-    let _ = std::fs::remove_file(path);
-    let _listener = UnixSeqpacketListener::bind(path).unwrap();
-    let _conn = UnixSeqpacketConn::connect(path).unwrap();
-    let _ = std::fs::remove_file(path);
+{   
+    let (path, _dir) = make_temp_dir("seqpacket1.exists.socket");
+
+    let _listener = UnixSeqpacketListener::bind(&path).unwrap();
+    let _conn = UnixSeqpacketConn::connect(&path).unwrap();
 }
 
 #[test]
@@ -24,19 +27,19 @@ fn seqpacket_is_supported_types()
 {
     use std::os::fd::IntoRawFd;
 
-    let path = "/tmp/seqpacket2.exists.socket";
-    let _ = std::fs::remove_file(path);
+    let (pathbuf, _dir) = make_temp_dir("seqpacket1.exists.socket");
+    let path = pathbuf.as_path();
+
     let _listener = UnixSeqpacketListener::bind(path).unwrap();
     let conn = UnixSeqpacketConn::connect(path).unwrap().into_raw_fd();
     
     let _conn = unsafe { UnixSeqpacketConn::from_raw_fd(conn) };
-
-    let _ = std::fs::remove_file(path);
 }
 
 #[cfg_attr(not(any(target_os="illumos", target_os="solaris", target_os="freebsd")), test)]
 #[cfg_attr(any(target_os="illumos", target_os="solaris", target_os="freebsd"), allow(unused))]
-fn truncated_packets_are_not_resumed() {
+fn truncated_packets_are_not_resumed() 
+{
     let (a, b) = NonblockingUnixSeqpacketConn::pair().unwrap();
     a.send(b"hello").unwrap();
     assert_eq!(b.recv(&mut[0; 20]).unwrap(), 5);
@@ -424,7 +427,8 @@ fn read_timeout() {
 
 #[cfg_attr(not(any(target_os="illumos", target_os="solaris")), test)]
 #[cfg_attr(any(target_os="illumos", target_os="solaris"), allow(unused))]
-fn write_timeout() {
+fn write_timeout() 
+{
     let (conn, _other) = UnixSeqpacketConn::pair().expect("create seqpacket pair");
     let timeout = Duration::new(0, 150_000_000);
     assert_eq!(conn.write_timeout().expect("get default write timeout"), None);
@@ -458,13 +462,15 @@ fn write_timeout() {
 }
 
 #[test]
-fn accept_timeout() {
-    let addr = "/tmp/accept_timeout.sock";
+fn accept_timeout() 
+{
+    let (pathbuf, _dir) = make_temp_dir("seqpacket1.exists.socket");
+    let path = pathbuf.as_path();
+
     let timeout = Duration::new(0, 250_000_000);
-    let _ = std::fs::remove_file(addr);
-    let listener = UnixSeqpacketListener::bind(addr)
+
+    let listener = UnixSeqpacketListener::bind(path)
         .expect("create seqpacket listener");
-    std::fs::remove_file(addr).expect("delete created socket file");
 
     assert_eq!(listener.timeout().expect("get default timeout"), None);
     listener.set_timeout(None).expect("disable timeout");
