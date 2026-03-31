@@ -412,17 +412,37 @@ fn from_sockaddr_storage_path()
     
     let path_addr = UnixSocketAddr::from_path("/tmp/path.sock").unwrap();
     let a = 
-    unsafe 
-    {
-        let (raw_addr, raw_len) = path_addr.as_raw();
-        let ref_addr: &libc::sockaddr_storage = mem::transmute(raw_addr);
+        unsafe 
+        {
+            let (raw_addr, raw_len) = path_addr.as_raw();
+            let ref_addr: &libc::sockaddr_storage = mem::transmute(raw_addr);
 
-        UnixSocketAddr::from_sockaddr_storage(ref_addr, raw_len)
-    }
-    .expect("from_raw() accepts from_path()");
+            UnixSocketAddr::from_sockaddr_storage(ref_addr, raw_len)
+        }
+        .expect("from_raw() accepts from_path()");
     
     assert_eq!(a, path_addr);
     assert!(a.is_path());
+}
+
+#[test]
+fn from_sockaddr_storage_path_unspec() 
+{
+    
+    let path_addr = UnixSocketAddr::new_unspecified();
+    let a = 
+        unsafe 
+        {
+            let (raw_addr, raw_len) = path_addr.as_raw();
+            assert_eq!(raw_len, 2);
+            let ref_addr: &libc::sockaddr_storage = mem::transmute(raw_addr);
+
+            UnixSocketAddr::from_sockaddr_storage(ref_addr, raw_len)
+        }
+        .expect("from_raw() accepts from_path()");
+    
+    assert_eq!(a, path_addr);
+    assert!(a.is_unnamed());
 }
 
 #[test]

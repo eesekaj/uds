@@ -1125,6 +1125,8 @@ impl UnixSocketAddr
 
     /// Creates an `UnixSocketAddr` from a pointer to a generic [libc::sockaddr_storage] and
     /// a length.
+    /// 
+    /// If len is  == 0 or < [path_offset] an `unspecified` type is returned.
     ///
     /// # Safety
     ///
@@ -1137,7 +1139,7 @@ impl UnixSocketAddr
 
         if len < path_offset() 
         {
-            return Err(io::Error::new(ErrorKind::InvalidInput, "address length is too short"));
+            return Ok(copy);
         } 
         else if len > mem::size_of::<sockaddr_un>() as socklen_t 
         {

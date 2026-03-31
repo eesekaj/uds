@@ -1,3 +1,9 @@
+
+Version 0.7.4 (2026-03-31)
+==========================
+* (fixed) in the `addr.rs` a  `from_sockaddr_storage` a new_unspecified() is returned when `len < path_offset()`.
+* ? add a windows as a target, so it will appear in the docs
+
 Version 0.7.3 (2026-03-26)
 ==========================
 * Fixed a potential memory unligned access at send_ancillary() and recv_ancillary part in ancilliary.rs

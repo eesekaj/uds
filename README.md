@@ -25,8 +25,17 @@ Ancillary credentials and timestamps are not yet supported.
 
 ## Changelog
 
+
 <details>
   <summary>Changelog </summary>
+
+* (fixed) in the `addr.rs` a  `from_sockaddr_storage` a new_unspecified() is returned when `len < path_offset()`.
+* ? add a windows as a target, so it will appear in the docs
+
+</details>
+
+<details>
+  <summary>Version 0.7.3 (2026-03-26) </summary>
 
 * Fixed a potential memory unligned access at send_ancillary() and recv_ancillary part in ancilliary.rs
 * Added temp dir in tests to avoid leaving the sockets.
