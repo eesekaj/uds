@@ -25,8 +25,17 @@ Ancillary credentials and timestamps are not yet supported.
 
 ## Changelog
 
+
 <details>
   <summary>Changelog </summary>
+
+* (fixed) Cargo.toml docs.rs(<--- crap crap crap) wrong docs targets.
+
+</details>
+
+
+<details>
+  <summary>Changelog Version 0.7.5 (2026-03-31)</summary>
 
 * (fixed) Cargo.toml docs.rs(<--- crap) wrong docs targets.
 

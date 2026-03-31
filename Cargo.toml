@@ -1,6 +1,6 @@
 [package]
 name = "uds-fork"
-version = "0.7.5"
+version = "0.7.6"
 description = """
 A unix domain socket crate that supports abstract addresses, fd-passing, seqpacket and windows unix stream sockets.
 """
@@ -39,7 +39,7 @@ xio-rs = { version = "0.1.0-alpha.3" } # MIT
 tempfile = { version = "~3.27" }
 
 [package.metadata.docs.rs]
-all-features = true
+features = ["mio", "xio-rs"]
 targets = [
   "x86_64-pc-windows-gnu",
   "x86_64-pc-windows-msvc",

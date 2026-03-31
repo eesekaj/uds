@@ -1,4 +1,8 @@
 
+Version 0.7.6 (2026-03-31)
+==========================
+* (fixed) Cargo.toml docs.rs(<--- crap crap crap) wrong docs targets.
+
 Version 0.7.5 (2026-03-31)
 ==========================
 * (fixed) Cargo.toml docs.rs(<--- crap) wrong docs targets.
