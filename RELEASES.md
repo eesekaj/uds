@@ -1,3 +1,9 @@
+Version 0.7.7 (2026-03-31)
+==========================
+At the moment I don't have access to the local docsrs server, and there is no other way
+it can be tested, so this is a last attempt to fix the problem.
+* (fixed) Cargo.toml docs.rs(<--- crap crap crap) wrong docs targets.
+
 
 Version 0.7.6 (2026-03-31)
 ==========================

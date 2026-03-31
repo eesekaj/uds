@@ -1,6 +1,6 @@
 [package]
 name = "uds-fork"
-version = "0.7.6"
+version = "0.7.7"
 description = """
 A unix domain socket crate that supports abstract addresses, fd-passing, seqpacket and windows unix stream sockets.
 """
@@ -39,14 +39,16 @@ xio-rs = { version = "0.1.0-alpha.3" } # MIT
 tempfile = { version = "~3.27" }
 
 [package.metadata.docs.rs]
-features = ["mio", "xio-rs"]
+# "mio" this is useless on windows and I don't have a local docs rs crap to test on my laptop, so I cannnot 
+# reupload this to docsrs everytime. also remove GNU crp, leave the msvc
+features = ["xio-rs"] 
 targets = [
-  "x86_64-pc-windows-gnu",
   "x86_64-pc-windows-msvc",
   "x86_64-unknown-freebsd",
   "x86_64-unknown-linux-gnu",
 ]
 
+# return this back after testing on local docsrs server
 # "x86_64-unknown-dragonfly",
 #   "x86_64-unknown-netbsd",
 #   "x86_64-unknown-openbsd",
