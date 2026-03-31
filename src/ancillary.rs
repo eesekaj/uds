@@ -507,8 +507,6 @@ impl<'a> Iterator for Ancillary<'a>
     {
         unsafe 
         {
-            use std::mem::MaybeUninit;
-
             if self.next_message.is_null() 
             {
                 return None;

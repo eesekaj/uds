@@ -9,7 +9,6 @@ use std::
     io::{self, ErrorKind}, 
     mem, 
     path::Path, 
-    ptr, 
     slice
 };
 
@@ -20,7 +19,11 @@ use std::os::unix::{ffi::OsStrExt, net};
 use libc::{AF_UNIX, sa_family_t, sockaddr, sockaddr_storage, sockaddr_un, socklen_t};
 
 #[cfg(windows)]
-pub use windows_sys::Win32::Networking::WinSock::{AF_UNIX, SOCKADDR_STORAGE as sockaddr_storage, socklen_t, SOCKADDR as sockaddr, SOCKADDR_UN as sockaddr_un, ADDRESS_FAMILY as sa_family_t};
+pub use windows_sys::Win32::Networking::WinSock::
+{
+    AF_UNIX, SOCKADDR_STORAGE as sockaddr_storage, socklen_t, SOCKADDR as sockaddr, 
+    SOCKADDR_UN as sockaddr_un, ADDRESS_FAMILY as sa_family_t
+};
 
 /// Offset of `.sun_path` in `sockaddr_un`.
 ///

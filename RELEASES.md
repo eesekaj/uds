@@ -1,4 +1,9 @@
 
+Version 0.7.5 (2026-03-31)
+==========================
+* (fixed) Cargo.toml docs.rs(<--- crap) wrong docs targets.
+
+
 Version 0.7.4 (2026-03-31)
 ==========================
 * (fixed) in the `addr.rs` a  `from_sockaddr_storage` a new_unspecified() is returned when `len < path_offset()`.
