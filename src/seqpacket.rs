@@ -6,8 +6,11 @@
 use std::io::ErrorKind;
 use std::
 {
-    io::{self, IoSlice, IoSliceMut}, net::Shutdown, ops::{Deref, DerefMut}, os::unix::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd}, path::Path, time::Duration
+    io::{self, ErrorKind, IoSlice, IoSliceMut}, net::Shutdown, ops::{Deref, DerefMut}, os::unix::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd}, path::Path, time::Duration
 };
+
+#[cfg(feature = "unsatable_preview")]
+use std::os::unix::net::SocketAncillary;
 
 use libc::{MSG_EOR, MSG_PEEK, c_void, send, recv};
 
@@ -431,11 +434,220 @@ impl UnixSeqpacketConn
         send_ancillary(&self, None, MSG_EOR, &[IoSlice::new(bytes)], fds, None)
     }
 
-    /// Receives a packet and associated file descriptors.
+    /// Receives a packet and associated file descriptors. A legacy method which 
+    /// was in this crate since its author added it.
+    /// 
+    /// See a [Self::recv_vectored_with_ancillary] for a new stdlib approach.
+    /// 
+    /// # Returns 
+    /// 
+    /// * 0 - amount of bytes received
+    /// 
+    /// * 1 - is truncated
+    /// 
+    /// * 2 - a fd buffer length
     pub 
     fn recv_fds(&self, byte_buffer: &mut[u8], fd_buffer: &mut Vec<OwnedFd>) -> Result<(usize, bool, usize), io::Error> 
     {
         recv_fds(&self, None, &mut[IoSliceMut::new(byte_buffer)], Some(fd_buffer))
+    }
+
+    /// A new (provided by std) parser of the ancillary data
+    /// 
+    /// Unstable and extremely unsafe. Rust devs did not provide an access
+    /// to the internal reference to the buffer in [SocketAncillary], so
+    /// there is no access to the buffer and its length. For this reason a
+    /// very bad approach to overcome this is used.
+    /// 
+    /// > Receives data and ancillary data from socket.
+    /// > 
+    /// > On success, returns the number of bytes read, if the data was 
+    /// > truncated and the address from whence the msg came.
+    /// 
+    /// # Returns
+    /// 
+    /// A [Result] is returned with tuple:
+    /// 
+    /// * `0` - a count of bytes.
+    /// 
+    /// * `1` - was msg truncated
+    /// 
+    /// # Example
+    /// 
+    /// ```ignore
+    ///  let mut buf = [0_u8; 256];
+    /// let bufs = &mut [IoSliceMut::new(&mut buf[..])];
+    /// 
+    /// let mut ancillary_buffer = [0; 128];
+    /// let mut ancillary = SocketAncillary::new(&mut ancillary_buffer[..]);
+    /// 
+    /// let (count, trunc) = 
+    ///     freya_side_b.recv_vectored_with_ancillary(bufs, &mut ancillary).unwrap();
+    /// ```
+    #[cfg(feature = "unsatable_preview")]
+    pub 
+    fn recv_vectored_with_ancillary(
+        &self,
+        flags: i32, 
+        bufs: &mut [IoSliceMut<'_>],
+        ancillary: &mut SocketAncillary<'_>,
+    ) -> Result<(usize, bool), io::Error>
+    {
+        unsafe { recv_ancillary_std(&self, flags, bufs, ancillary) }
+            .map(|(count, trunc, _)| (count, trunc))
+    }
+
+    /// A new (provided by std) parser of the ancillary data
+    /// 
+    /// Unstable and extremely unsafe. Rust devs did not provide an access
+    /// to the internal reference to the buffer in [SocketAncillary], so
+    /// there is no access to the buffer and its length. For this reason a
+    /// very bad approach to overcome this is used.
+    /// 
+    /// > Receives data and ancillary data providing the source of msg.
+    /// > 
+    /// > On success, returns the number of bytes read, if the data was 
+    /// > truncated and the address from whence the msg came.
+    /// 
+    /// # Returns
+    /// 
+    /// A [Result] is returned with tuple:
+    /// 
+    /// * `0` - a count of bytes.
+    /// 
+    /// * `1` - was msg truncated
+    /// 
+    /// * `2` - a source address
+    /// 
+    /// # Example
+    /// 
+    /// ```ignore
+    /// let mut buf = [0_u8; 256];
+    /// let bufs = &mut [IoSliceMut::new(&mut buf[..])];
+    /// 
+    /// let mut ancillary_buffer = [0; 128];
+    /// let mut ancillary = SocketAncillary::new(&mut ancillary_buffer[..]);
+    /// 
+    /// let (count, trunc, from) = 
+    ///     freya_side_b.recv_vectored_with_ancillary(bufs, &mut ancillary).unwrap();
+    /// ```
+    #[cfg(feature = "unsatable_preview")]
+    pub 
+    fn recv_vectored_with_ancillary_from(
+        &self,
+        flags: i32,
+        bufs: &mut [IoSliceMut<'_>],
+        ancillary: &mut SocketAncillary<'_>,
+    ) -> Result<(usize, bool, UnixSocketAddr), io::Error>
+    {
+        unsafe { recv_ancillary_std(&self, flags, bufs, ancillary) }
+    }
+
+    /// A new (provided by std) parser of the ancillary data. 
+    /// 
+    /// Rust #![feature(unix_socket_ancillary_data)]
+    /// 
+    /// Unstable and extremely unsafe. Rust devs did not provide an access
+    /// to the internal reference to the buffer in [SocketAncillary], so
+    /// there is no access to the buffer and its length. For this reason a
+    /// very bad approach to overcome this is used.
+    /// 
+    /// > Sends data and ancillary data on the current socket.
+    /// >
+    /// > On success, returns the number of bytes written.
+    /// 
+    /// Crate: feature = unsatable_preview
+    /// 
+    /// # Arguments
+    /// 
+    /// * `flags` - a flags which are passed to [libc::recvmsg].
+    /// 
+    /// * `bufs` - an [IoSlice] buffers.
+    /// 
+    /// * `ancillary` - packed ancillary data
+    /// 
+    /// # Example 
+    /// 
+    /// ```ignore
+    /// let buf0 = b"Here I come";
+    /// let mut ancillary_buffer = [0; 128];
+    /// let mut ancillary = SocketAncillary::new(&mut ancillary_buffer[..]);
+    /// 
+    /// let fds = [OwnedFd::from(a).into_raw_fd(), OwnedFd::from(b).into_raw_fd(), OwnedFd::from(aa).into_raw_fd()];
+    /// 
+    /// ancillary.add_fds(&fds[..]);
+    /// 
+    /// freya_side_a.send_vectored_with_ancillary(&[IoSlice::new(buf0.as_slice())], &mut ancillary)
+    ///     .expect("send stdin, stdout and stderr");
+    /// 
+    /// ```
+    #[cfg(feature = "unsatable_preview")]
+    pub 
+    fn send_vectored_with_ancillary(
+        &self,
+        flags: i32,
+        bufs: &[IoSlice<'_>],
+        ancillary: &mut SocketAncillary<'_>,
+    ) -> io::Result<usize> 
+    {
+        unsafe { send_ancillary_std(&self, None, flags, bufs,  ancillary) }
+    }
+
+    /// A new (provided by std) parser of the ancillary data. 
+    /// 
+    /// Rust #![feature(unix_socket_ancillary_data)]
+    /// 
+    /// Unstable and extremely unsafe. Rust devs did not provide an access
+    /// to the internal reference to the buffer in [SocketAncillary], so
+    /// there is no access to the buffer and its length. For this reason a
+    /// very bad approach to overcome this is used.
+    /// 
+    /// > Sends data and ancillary data on the socket to the specified address.
+    /// >
+    /// > On success, returns the number of bytes written.
+    /// 
+    /// Crate: feature = unsatable_preview
+    /// 
+    /// # Arguments
+    /// 
+    /// * `flags` - a flags which are passed to [libc::recvmsg].
+    /// 
+    /// * `to` - a destination.
+    /// 
+    /// * `bufs` - an [IoSlice] buffers.
+    /// 
+    /// * `ancillary` - packed ancillary data
+    /// 
+    /// # Example 
+    /// 
+    /// ```ignore
+    /// let buf0 = b"Here I come";
+    /// let mut ancillary_buffer = [0; 128];
+    /// let mut ancillary = SocketAncillary::new(&mut ancillary_buffer[..]);
+    /// 
+    /// let fds = 
+    ///     [OwnedFd::from(a).into_raw_fd(), OwnedFd::from(b).into_raw_fd(), OwnedFd::from(aa).into_raw_fd()];
+    /// 
+    /// ancillary.add_fds(&fds[..]);
+    /// 
+    /// let dst = UnixSocketAddr::from_abstract("@test");
+    /// 
+    /// freya_side_a
+    ///     .send_vectored_with_ancillary_to(0, &dst, &[IoSlice::new(buf0.as_slice())], &mut ancillary)
+    ///     .expect("send stdin, stdout and stderr");
+    /// 
+    /// ```
+    #[cfg(feature = "unsatable_preview")]
+    pub 
+    fn send_vectored_with_ancillary_to(
+        &self,
+        flags: i32,
+        to: &UnixSocketAddr,
+        bufs: &[IoSlice<'_>],
+        ancillary: &mut SocketAncillary<'_>,
+    ) -> io::Result<usize> 
+    {
+        unsafe { send_ancillary_std(&self, Some(to), flags, bufs,  ancillary) }
     }
 
     /// Receives a packet without removing it from the incoming queue.
@@ -709,8 +921,83 @@ impl UnixSeqpacketConn
         
         return Ok(());
     }
+
+    fn read_string(&self, buf: &mut String) -> io::Result<usize>
+    {
+        let mut read_size: u32 = 0;
+
+        let _ = 
+            cvt!(unsafe { libc::ioctl(self.fd.as_raw_fd(), libc::FIONREAD, &mut read_size) })?;
+
+        let mut byte_buf = vec![0_u8; read_size as usize];
+
+        let _ = self.recv(&mut byte_buf)?;
+
+        let str_slice = 
+            str::from_utf8(&byte_buf)
+                .map_err(|e|
+                    io::Error::new(ErrorKind::Other, e)
+                )?;
+
+        buf.push_str(str_slice);
+
+        return Ok(byte_buf.len());
+    }
 }
 
+impl io::Read for UnixSeqpacketConn
+{
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> 
+    {
+        self.recv(buf)
+    }
+
+    fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> 
+    {
+        self.recv_vectored(bufs).map(|(n, _)| n)
+    }
+
+    fn read_to_string(&mut self, buf: &mut String) -> io::Result<usize> 
+    {
+        self.read_string(buf)
+    }
+}
+
+impl<'a> io::Read for &'a UnixSeqpacketConn
+{
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> 
+    {
+        self.recv(buf)
+    }
+
+    fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> 
+    {
+        self.recv_vectored(bufs).map(|(n, _)| n)
+    }
+
+    fn read_to_string(&mut self, buf: &mut String) -> io::Result<usize> 
+    {
+        self.read_string(buf)
+    }
+}
+
+impl io::Write for UnixSeqpacketConn
+{
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> 
+    {
+        self.send(buf)
+    }
+
+    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> io::Result<usize> 
+    {
+        self.send_vectored(bufs)
+    }
+
+    fn flush(&mut self) -> io::Result<()> 
+    {
+        return Ok(());
+    }
+}
 
 /// An unix domain listener for sequential packet connections.
 ///
@@ -953,7 +1240,7 @@ impl UnixSeqpacketListener
     /// > is established. When established, the corresponding [`UnixSeqpacketConn`] and
     /// > the remote peer's address will be returned.
     /// 
-    /// [`UnixSeqpacketConn`]: uds_fork::UnixSeqpacketConn
+    /// [`UnixSeqpacketConn`]: UnixSeqpacketConn
     ///
     /// # Examples
     ///
@@ -1513,6 +1800,50 @@ impl NonblockingUnixSeqpacketConn
     }
 }
 
+impl io::Read for NonblockingUnixSeqpacketConn
+{
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> 
+    {
+        self.recv(buf)
+    }
+
+    fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> 
+    {
+        self.recv_vectored(bufs).map(|(n, _)| n)
+    }
+}
+
+impl<'a> io::Read for &'a NonblockingUnixSeqpacketConn
+{
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> 
+    {
+        self.recv(buf)
+    }
+
+    fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> 
+    {
+        self.recv_vectored(bufs).map(|(n, _)| n)
+    }
+}
+
+impl io::Write for NonblockingUnixSeqpacketConn
+{
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> 
+    {
+        self.send(buf)
+    }
+
+    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> io::Result<usize> 
+    {
+        self.send_vectored(bufs)
+    }
+
+    fn flush(&mut self) -> io::Result<()> 
+    {
+        todo!()
+    }
+}
+
 
 /// A non-blocking unix domain listener for sequential-packet connections.
 ///
@@ -1688,6 +2019,8 @@ impl NonblockingUnixSeqpacketListener
         return Ok((conn, addr));
     }
 }
+
+
 
 #[cfg(feature = "mio")]
 pub mod mio_non_blk_listener_enabled

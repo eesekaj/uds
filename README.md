@@ -22,12 +22,22 @@ Ancillary credentials and timestamps are not yet supported.
 
 * "xio-rs" enables the Xio-rs event notification system compat code
 * "mio" enables the Mio event notification system compat code
+* "unsatable_preview" enables the all unstable, nightly code i.e send_vectored_with_ancillary().
 
 ## Changelog
 
 
 <details>
   <summary>Changelog </summary>
+
+* Added io::Read and io::Write including `read_to_string` which is based on ioctl FIONREAD. The `read_to_string` may behave not as expected.
+* Updated mio to 1.2. I don't want to support legacy and there isn't any reason to do so. If you think - there is one, leave a note please. (I don't want to support it here at all).
+* Prepared a recv_vectored_with_ancillary() and  send_vectored_with_ancillary() which requires a unstable Rust compiler. Can be enabled with feature `unsatable_preview`.
+
+</details>
+
+<details>
+  <summary>Changelog Version 0.7.7 (2026-03-31)</summary>
 
 At the moment I don't have access to the local docsrs server, and there is no other way
 it can be tested, so this is a last attempt to fix the problem.
@@ -174,6 +184,75 @@ if creds.euid() == 0 {
 }
 ```
 
+### (only runs sucessfully on Linux and on nightly, feature = "unsatable_preview")
+
+```rust ignore
+extern crate uds_fork;
+use std::{io::{IoSlice, IoSliceMut}, os::{fd::{IntoRawFd, OwnedFd}, unix::net::{AncillaryData, SocketAncillary, UnixDatagram}}};
+
+use libc::MSG_EOR;
+
+let dir = tempfile::tempdir().unwrap();
+let path_full = dir.path().join("seqpacket2.exists.socket");
+let path = path_full.as_path();
+
+let addr = 
+    uds_fork::UnixSocketAddr::from_path(&path)
+        .expect("create abstract socket address");
+    
+let listener = 
+    uds_fork::UnixSeqpacketListener::bind_unix_addr(&addr)
+        .expect("create seqpacket listener");
+
+let freya_side_a = 
+    uds_fork::UnixSeqpacketConn::connect_unix_addr(&addr)
+        .expect("connect to listener");
+
+let (freya_side_b, _) = listener.accept_unix_addr()
+    .expect("accept connection");
+
+let (a, b) = UnixDatagram::pair().expect("create datagram socket pair");
+let (aa, _bb) = UnixDatagram::pair().expect("create datagram socket pair");
+
+let buf0 = b"Here I come";
+let mut ancillary_buffer = [0; 128];
+let mut ancillary = SocketAncillary::new(&mut ancillary_buffer[..]);
+
+let fds = [OwnedFd::from(a).into_raw_fd(), OwnedFd::from(b).into_raw_fd(), OwnedFd::from(aa).into_raw_fd()];
+
+ancillary.add_fds(&fds[..]);
+
+freya_side_a.send_vectored_with_ancillary(MSG_EOR, &[IoSlice::new(buf0.as_slice())], &mut ancillary)
+    .expect("send stdin, stdout and stderr");
+
+// receive
+let mut buf = [0_u8; 256];
+let bufs = &mut [IoSliceMut::new(&mut buf[..])];
+
+let mut ancillary_buffer = [0; 128];
+let mut ancillary = SocketAncillary::new(&mut ancillary_buffer[..]);
+
+let (count, trunc) = freya_side_b.recv_vectored_with_ancillary(0, bufs, &mut ancillary).unwrap();
+
+println!("count: {}, trunc: {}, anscil len: {}", count, trunc, ancillary.len());
+
+assert_eq!(trunc, false);
+assert_eq!(count, buf0.len());
+assert_eq!(buf0.as_slice(), &buf[..count]);
+
+for ancillary_result in ancillary.messages() 
+{
+    if let AncillaryData::ScmRights(scm_rights) = ancillary_result.unwrap() 
+    {
+        assert_eq!(scm_rights.count(), 3);
+    }
+    else
+    {
+        panic!("expected ScmRights")
+    }
+}
+```
+
 ### (only runs sucessfully on Windows)
 
 ```rust ignore
@@ -289,6 +368,7 @@ Also, some OSes might return the original file descriptor without cloning it if 
 ### Other OSes
 
 * FreeBSD 15 (from version to version) behaves differently on msg truncation and sending empty messages.
+See [bugs FreeBSD](https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=279354)
 * Android: I haven't tested on it, but I assume there are no differences from regular Linux.
 * Windows 10: While it added some unix socket features, Windows support is not a priority. (PRs are welcome though).
 * Solaris: Treated identically as Illumos. mio 0.8 doesn't support it.

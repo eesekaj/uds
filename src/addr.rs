@@ -1129,7 +1129,7 @@ impl UnixSocketAddr
     /// Creates an `UnixSocketAddr` from a pointer to a generic [libc::sockaddr_storage] and
     /// a length.
     /// 
-    /// If len is  == 0 or < [path_offset] an `unspecified` type is returned.
+    /// If len is  == 0 or < path_offset() an `unspecified` type is returned.
     ///
     /// # Safety
     ///

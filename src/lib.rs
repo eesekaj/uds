@@ -17,7 +17,8 @@
 //!
 //! See README for status of operating system support and other general info.
 
-//#![cfg(unix)] // compile as empty crate on windows
+#![cfg_attr(feature = "unsatable_preview", feature(unix_socket_ancillary_data))]
+
 
 // Too many features unavailable on solarish to bother cfg()ing individually.
 #![cfg_attr(any(target_os="illumos", target_os="solaris", target_os="windows"), allow(unused))]
@@ -81,6 +82,9 @@ macro_rules! cvt_r {($syscall:expr) => {
 mod windows_unixstream;
 
 mod addr;
+
+#[cfg(feature = "unsatable_preview")]
+mod ancillary_rust;
 
 #[cfg(target_family = "unix")]
 mod credentials;

@@ -1,3 +1,9 @@
+Version 0.8.0 (2026-04-13)
+==========================
+* Added io::Read and io::Write including `read_to_string` which is based on ioctl FIONREAD. The `read_to_string` may behave not as expected.
+* Updated mio to 1.2. I don't want to support legacy and there isn't any reason to do so. If you think - there is one, leave a note please. (I don't want to support it here at all).
+* Prepared a recv_vectored_with_ancillary() and  send_vectored_with_ancillary() which requires a unstable Rust compiler. Can be enabled with feature `unsatable_preview`.
+
 Version 0.7.7 (2026-03-31)
 ==========================
 At the moment I don't have access to the local docsrs server, and there is no other way

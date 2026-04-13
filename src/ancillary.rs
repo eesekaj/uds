@@ -16,6 +16,9 @@ use std::convert::TryInto;
 use std::{mem, ptr, slice};
 use std::marker::PhantomData;
 
+#[cfg(feature = "unsatable_preview")]
+use std::os::unix::net::SocketAncillary;
+
 use libc::{c_int, c_uint, c_void};
 use libc::{msghdr, iovec, cmsghdr, sockaddr, sockaddr_un};
 use libc::{sendmsg, recvmsg};
@@ -29,6 +32,9 @@ use libc::{SOL_SOCKET, SCM_RIGHTS};
 use libc::SCM_CREDENTIALS;
 #[cfg(not(any(target_vendor="apple", target_os="illumos", target_os="solaris", target_os = "haiku")))]
 use libc::MSG_CMSG_CLOEXEC;
+
+#[cfg(feature = "unsatable_preview")]
+use crate::ancillary_rust::SocketAncillaryCover;
 
 use crate::helpers::*;
 use crate::UnixSocketAddr;
@@ -53,6 +59,8 @@ type ControlLen = usize;
 type ControlLen = libc::socklen_t;
 
 /// Safe wrapper around `sendmsg()`.
+/// 
+/// A legacy.
 pub 
 fn send_ancillary<FD: AsFd>(
     socket: FD,  
@@ -612,6 +620,8 @@ impl<'a> Ancillary<'a>
 }
 
 /// A safe (but incomplete) wrapper around `recvmsg()`.
+/// 
+/// Legacy.
 pub 
 fn recv_ancillary<'ancillary_buf, FD: AsFd>(
     socket: FD,  
@@ -710,6 +720,115 @@ fn recv_ancillary<'ancillary_buf, FD: AsFd>(
     }
 }
 
+/// A new (Rust STD) vectored + ancillary sender.
+/// 
+/// Rust devs are in its dumb manner don't provide an access to buffer and length.
+/// So a dirty hack is used. Very unsafe!
+#[cfg(feature = "unsatable_preview")]
+pub unsafe 
+fn send_ancillary_std<FD: AsFd>(
+    fd: FD, 
+    to: Option<&UnixSocketAddr>,  
+    flags: c_int,
+    bytes: &[IoSlice],  
+    ancillary: &mut SocketAncillary<'_>,
+) -> Result<usize, io::Error> 
+{
+    let mut msg: msghdr = unsafe { mem::zeroed() };
+    msg.msg_name = ptr::null_mut();
+    msg.msg_namelen = 0;
+    msg.msg_iov = bytes.as_ptr() as *mut iovec;
+    msg.msg_iovlen = 
+        bytes.len().try_into() 
+            .map_err(|e|
+                io::Error::new(ErrorKind::InvalidInput, 
+                    format!("too many byte slices {}", e))
+            )?;
+
+    msg.msg_flags = 0;
+    msg.msg_control = ptr::null_mut();
+    msg.msg_controllen = 0;
+
+    if let Some(addr) = to 
+    {
+        let (addr, len) = addr.as_raw();
+        msg.msg_name = addr as *const sockaddr_un as *const c_void as *mut c_void;
+        msg.msg_namelen = len;
+    }
+
+    let anci_struct: *mut SocketAncillaryCover = ancillary as *mut _ as *mut SocketAncillaryCover;
+
+    if ancillary.len() > 0
+    {
+        msg.msg_controllen = ancillary.len();
+        msg.msg_control = unsafe { (&mut *anci_struct).buffer.as_mut_ptr().cast() };
+    }
+
+    // in std lib they do this... without any reasoning
+    unsafe { (&mut *anci_struct).truncated = false };
+
+    let result = 
+            cvt_r!(unsafe { sendmsg(fd.as_fd().as_raw_fd(), &msg, flags | MSG_NOSIGNAL) });
+
+    return result.map(|sent| sent as usize );
+}
+
+/// A new (Rust STD) ancillary receiver.
+/// 
+/// Rust devs are in its dumb manner don't provide an access to buffer and length.
+/// So a dirty hack is used. Very unsafe!
+#[cfg(feature = "unsatable_preview")]
+pub unsafe 
+fn recv_ancillary_std<FD: AsFd>(
+    fd: FD, 
+    mut flags: i32,
+    bufs: &mut[IoSliceMut], 
+    anci: &mut SocketAncillary<'_>
+) -> Result<(usize, bool, UnixSocketAddr), io::Error> 
+{
+    let mut msg: msghdr = unsafe { mem::zeroed() };
+
+    let mut addr = UnixSocketAddr::new_unspecified();
+
+    msg.msg_name = unsafe { addr.as_raw_mut_general().0 as *mut sockaddr as *mut c_void };
+    msg.msg_namelen = unsafe { *addr.as_raw_mut_general().1 };
+
+    msg.msg_iov = bufs.as_mut_ptr() as *mut iovec;
+    msg.msg_iovlen = 
+        bufs.len().try_into()
+            .map_err(|_|
+                io::Error::new(ErrorKind::InvalidInput, "too many content buffers")
+            )?;
+
+    msg.msg_flags = 0;
+
+    let anci_struct: *mut SocketAncillaryCover = anci as *mut _ as *mut SocketAncillaryCover;
+
+    if anci.capacity() > 0
+    {
+        msg.msg_control = unsafe { (&mut *anci_struct).buffer.as_mut_ptr().cast() };
+        msg.msg_controllen = anci.capacity(); 
+    }
+
+    flags |= MSG_NOSIGNAL;
+    #[cfg(not(any(target_vendor="apple", target_os="illumos", target_os="solaris", target_os = "haiku")))] 
+    {
+        flags |= MSG_CMSG_CLOEXEC;
+    }
+
+    let received = cvt_r!( unsafe { recvmsg(fd.as_fd().as_raw_fd(), &mut msg, flags) })? as usize;
+
+    let trucated = msg.msg_flags & libc::MSG_CTRUNC == libc::MSG_CTRUNC;
+
+    
+    unsafe { (&mut *anci_struct).length = msg.msg_controllen as usize; }
+    unsafe { (&mut *anci_struct).truncated = trucated; }
+
+    return Ok((received, trucated, addr));
+}
+    
+
+/// A legacy method.
 pub 
 fn recv_fds<FD: AsFd>(
     fd: FD,  
@@ -770,55 +889,3 @@ fn recv_fds<FD: AsFd>(
         Ok((num_bytes, msg_truc, fd_buf.as_ref().map_or(0, |f| f.len())));
 }
 
-/*
-#[cfg(test)]
-mod tests
-{
-    use std::{io::IoSliceMut, os::fd::{OwnedFd, RawFd}};
-
-    use libc::getpid;
-
-    use crate::{UnixSeqpacketConn, ancillary::{AncillaryBuf, AncillaryItem, recv_ancillary, send_ancillary}, credentials::SendCredentials};
-
-
-    #[cfg_attr(
-        any(
-            target_os="linux", target_os="android",
-            target_os="freebsd", target_os="dragonfly",
-            target_os="openbsd", target_os="netbsd",
-            target_os="illumos", target_os="solaris"
-        ),
-        test
-    )]
-    fn peer_credentials_of_seqpacket_pair2() {
-        let (a, b) = UnixSeqpacketConn::pair().expect("create unix seqpacket pair");
-        let (a2, b2) = UnixSeqpacketConn::pair().map(|(a, b)| (OwnedFd::from(a), OwnedFd::from(b))).expect("create stream socket pair");
-        let creds = SendCredentials::Custom { pid: getpid(), uid: (), gid: () }
-
-        send_ancillary(&a, None, 0, &[], vec![], Some(creds)).unwrap();
-
-        let mut fd_buf: Vec<OwnedFd> = Vec::with_capacity(2);
-
-        let mut ancillary_buf = 
-            AncillaryBuf::with_fd_capacity(
-                fd_buf.capacity()
-            ).unwrap();    
-        let mut slicebuf = vec![0u8; 64];
-        let (num_bytes, ancillary) = 
-            recv_ancillary(&b, None, 0, &mut[IoSliceMut::new(&mut slicebuf)], &mut ancillary_buf).unwrap();
-
-        println!("ffff");
-
-        for message in ancillary 
-        {
-            if let AncillaryItem::Fds(fds) = message 
-            {
-                println!("fd");
-            }
-            else if let AncillaryItem::Credentials(d) = message
-            {
-                println!("creds");
-            }
-        }
-    }
-}*/
