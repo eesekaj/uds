@@ -67,7 +67,7 @@ fn send_ancillary<FD: AsFd>(
     to: Option<&UnixSocketAddr>,  
     flags: c_int,
     bytes: &[IoSlice],  
-    fds: Vec<OwnedFd>,  
+    fds: &[RawFd],  
     creds: Option<SendCredentials>
 ) -> Result<usize, io::Error> 
 {
@@ -121,8 +121,8 @@ fn send_ancillary<FD: AsFd>(
                 );
             }
             #[cfg(not(any(target_os="illumos", target_os="solaris")))] 
-            {
-                needed_capacity += CMSG_SPACE(mem::size_of_val::<[OwnedFd]>(&fds) as u32);
+            {println!("{}", mem::size_of_val::<[RawFd]>(&fds));
+                needed_capacity += CMSG_SPACE(mem::size_of_val::<[RawFd]>(&fds) as u32);
             }
             #[cfg(any(target_os="illumos", target_os="solaris"))] 
             {
@@ -217,23 +217,21 @@ fn send_ancillary<FD: AsFd>(
 
                 if fds.len() > 0 
                 {
-                    use std::os::fd::IntoRawFd;
-
                     header.cmsg_level = SOL_SOCKET;
                     header.cmsg_type = SCM_RIGHTS;
-                    header.cmsg_len = CMSG_LEN(mem::size_of_val::<[OwnedFd]>(&fds) as u32) as ControlLen;
+                    header.cmsg_len = CMSG_LEN(mem::size_of_val::<[RawFd]>(&fds) as u32) as ControlLen;
                     
                     let mut dst = CMSG_DATA(header) as *mut c_void as *mut RawFd;
                     
-                    for fd in fds.into_iter().map(|fd| fd.into_raw_fd()) 
+                    for fd in fds
                     {
                         if dst.is_aligned() == false
                         {
-                            ptr::write_unaligned(dst, fd);
+                            ptr::write_unaligned(dst, *fd);
                         }
                         else
                         {
-                            ptr::write(dst, fd);
+                            ptr::write(dst, *fd);
                         }
 
                         dst = dst.add(1);
@@ -829,18 +827,80 @@ fn recv_ancillary_std<FD: AsFd>(
     
 
 /// A legacy method.
+/// 
+/// Receives the FDs into pre-allocated slice! A received FD will become 
+/// [Option::Some].
+pub 
+fn recv_slice_fds<FD: AsFd>(
+    fd: FD,  
+    from: Option<&mut UnixSocketAddr>,
+    bufs: &mut[IoSliceMut],  
+    fd_buf: &mut [Option<OwnedFd>]
+) -> Result<(usize, bool, usize), io::Error> 
+{
+    let mut ancillary_buf = 
+        AncillaryBuf::with_fd_capacity(
+            fd_buf.len()
+        )?;    
+
+    let (num_bytes, ancillary) = 
+        recv_ancillary(fd, from, 0, bufs, &mut ancillary_buf)?;
+
+    let mut num_fds = 0;
+
+    let msg_truc = ancillary.message_truncated();
+
+    for message in ancillary 
+    {
+        if let AncillaryItem::Fds(fds) = message 
+        {
+            // Due to alignment of cmsg_len in glibc the minimum payload
+            // capacity is on Linux (and probably Android) 8 bytes,
+            // which means we might receive two file descriptors even though
+            // we only want one.
+            let can_keep = fds.len().min(fd_buf.len()-num_fds);
+            num_fds += can_keep;
+
+            for (ofd, i) in fds.into_iter().zip(0..can_keep) 
+            {
+                #[cfg(any(target_vendor="apple", target_os="freebsd"))] 
+                {
+                    // set cloexec
+                    // This is necessary on FreeBSD as MSG_CMSG_CLOEXEC
+                    // appears to have no effect.
+                    // FIXME this should be done in a separate iteration
+                    // when the fds are received, and not after user code
+                    // has had a chance to run.
+                    // SAFETY: It's safe to create FdSlice twice from valid values. The values are valid.   
+                    let _ = set_cloexec(&ofd, true);
+
+                    
+                }
+
+                let _ = fd_buf[i].replace(ofd);
+            }
+
+            // the rest of the OwnedFd will be dropped automatically
+        }
+    }
+    
+    return 
+        Ok((num_bytes, msg_truc, num_fds));
+}
+
+/// A legacy method.
+/// 
+/// Receives the FDs into a [Vec].
 pub 
 fn recv_fds<FD: AsFd>(
     fd: FD,  
     from: Option<&mut UnixSocketAddr>,
     bufs: &mut[IoSliceMut],  
-    mut fd_buf: Option<&mut Vec<OwnedFd>>
+    fd_buf: &mut Vec<OwnedFd>
 ) -> Result<(usize, bool, usize), io::Error> 
 {
     let mut ancillary_buf = 
-        AncillaryBuf::with_fd_capacity(
-            fd_buf.as_ref().map_or(0, |f| f.capacity())
-        )?;    
+        AncillaryBuf::with_fd_capacity(fd_buf.capacity())?;    
 
     let (num_bytes, ancillary) = 
         recv_ancillary(fd, from, 0, bufs, &mut ancillary_buf)?;
@@ -855,10 +915,7 @@ fn recv_fds<FD: AsFd>(
             // capacity is on Linux (and probably Android) 8 bytes,
             // which means we might receive two file descriptors even though
             // we only want one.
-            let (cap, len) = 
-                fd_buf
-                    .as_ref()
-                    .map_or((0, 0), |f| (f.capacity(), f.len()));
+            let (cap, len) = (fd_buf.capacity(), fd_buf.len());
 
             let can_keep = fds.len().min(cap - len);
 
@@ -878,7 +935,7 @@ fn recv_fds<FD: AsFd>(
                     
                 }
 
-                fd_buf.as_mut().unwrap().push( ofd );
+                fd_buf.push( ofd );
             }
 
             // the rest of the OwnedFd will be dropped automatically
@@ -886,6 +943,5 @@ fn recv_fds<FD: AsFd>(
     }
     
     return 
-        Ok((num_bytes, msg_truc, fd_buf.as_ref().map_or(0, |f| f.len())));
+        Ok((num_bytes, msg_truc, fd_buf.len()));
 }
-

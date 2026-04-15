@@ -1,3 +1,12 @@
+Version 0.9.0 (2026-04-15)
+==========================
+While auditing the code, I discovered that the person who was helping me with this crate had mixed up the functions "to_raw_fd()" and  "into_raw_fd()" which may cause a FD leak while sending the FD.
+For this reason, a version 0.8.x is considered as faulty.
+* A `send_fds` was left as is. It sill consumes the OwnedFd closing it after sending. A `send_fds_raw` was added to send a `RawFd` directly.
+* A `recv_fds` was left as is receiving the FDs into the Vec. A `recv_slice_fds` was added to receive the FDs into a mutable slice.
+* A `recv_ancillary` was left to receive the FDs using iterator.
+* Added `recv_vectored_ancillary` a legacy ancillary iterator.
+
 Version 0.8.0 (2026-04-13)
 ==========================
 * Added io::Read and io::Write including `read_to_string` which is based on ioctl FIONREAD. The `read_to_string` may behave not as expected.

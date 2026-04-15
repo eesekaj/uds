@@ -16,6 +16,14 @@
 //! Also it support UnixStream for Windows i.e AF_INET SOCK_STREAM with some limitations.
 //!
 //! See README for status of operating system support and other general info.
+//! 
+//! In seqpacket.rs a [UnixSeqpacketConn]:
+//! 
+//! If the feature `unsatable_preview` is enabled, a `send_vectored_with_ancillary_to`, 
+//! `send_vectored_with_ancillary`, `recv_vectored_with_ancillary_from`,
+//! `recv_vectored_with_ancillary` are enabled.
+//! 
+//! A legacy (method provided not by std but this crate) is `recv_vectored_ancillary`.
 
 #![cfg_attr(feature = "unsatable_preview", feature(unix_socket_ancillary_data))]
 
@@ -112,6 +120,9 @@ pub use windows_unixstream::{WindowsUnixListener, WindowsUnixStream, RecvFlags};
 
 #[cfg(windows)]
 pub use windows_unixstream::{get_socket_family, get_socket_type};
+
+#[cfg(target_family = "unix")]
+pub use ancillary::{AncillaryBuf, Ancillary, AncillaryItem};
 
 #[cfg(target_family = "unix")]
 pub use traits::{UnixListenerExt, UnixStreamExt, UnixDatagramExt};

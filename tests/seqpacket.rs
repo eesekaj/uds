@@ -141,7 +141,8 @@ fn zero_length_vectored_sort_of_works_freebsd()
 }
 
 #[test]
-fn no_sigpipe() {
+fn no_sigpipe() 
+{
     let (a, _) = UnixSeqpacketConn::pair().expect("create seqpacket socket pair");
     let (aa, _) = UnixSeqpacketConn::pair().expect("create seqpacket socket pair");
 

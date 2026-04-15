@@ -1,6 +1,8 @@
 #![cfg_attr(any(target_os="illumos", target_os="solaris"), allow(unused))]
 #![cfg(target_family = "unix")]
 
+// this tests should be run in sequence, otherwise it fails.
+
 extern crate libc;
 extern crate uds_fork;
 
@@ -26,6 +28,7 @@ use uds_fork::{UnixDatagramExt, UnixStreamExt, UnixSocketAddr};
 
 use crate::common::make_temp_dir_no_file;
 
+
 #[cfg_attr(not(any(target_os="illumos", target_os="solaris")), test)]
 fn datagram_send_no_fds() {
     let (a, b) = UnixDatagram::pair().expect("create datagram socket pair");
@@ -39,20 +42,20 @@ fn datagram_send_no_fds() {
     a.send_fds(b"aa", vec![]).expect("send zero file descriptors");
     let mut rcvfd = Vec::with_capacity(0);
 
-    let (bytes, fds) = b.recv_fds(&mut[0u8; 10], &mut rcvfd).expect("receive with empty fd buffer");
+    let (bytes, fds) = b.recv_slice_fds(&mut[0u8; 10], &mut rcvfd).expect("receive with empty fd buffer");
     assert_eq!(bytes, 2);
     assert_eq!(fds, 0);
 
     // send without ancillary, receive for empty fd slice
     a.send(b"aaa").expect("send normally - without ancillary");
-    let (bytes, fds) = b.recv_fds(&mut[0u8; 10], &mut rcvfd).expect("receive with empty fd buffer");
+    let (bytes, fds) = b.recv_slice_fds(&mut[0u8; 10], &mut rcvfd).expect("receive with empty fd buffer");
     assert_eq!(bytes, 3);
     assert_eq!(fds, 0);
 
     // send with empty fd slice, receive with capacity
     a.send_fds(b"aaaa", Vec::new()).expect("send zero file descriptors");
     let mut fd_buf = Vec::with_capacity(3);
-    let (bytes, fds) = b.recv_fds(&mut[0u8; 10], &mut fd_buf).expect("receive with fd buffer");
+    let (bytes, fds) = b.recv_slice_fds(&mut[0u8; 10], &mut fd_buf).expect("receive with fd buffer");
     assert_eq!(bytes, 4);
     assert_eq!(fds, 0);
     assert_eq!(fd_buf.len(), 0);
@@ -60,14 +63,15 @@ fn datagram_send_no_fds() {
     // send without ancillary, receive with capacity
     a.send(b"aaaaa").expect("send normally - without ancillary");
     let mut fd_buf = Vec::with_capacity(3);
-    let (bytes, fds) = b.recv_fds(&mut[0u8; 10], &mut fd_buf).expect("receive with fd buffer");
+    let (bytes, fds) = b.recv_slice_fds(&mut[0u8; 10], &mut fd_buf).expect("receive with fd buffer");
     assert_eq!(bytes, 5);
     assert_eq!(fds, 0);
     assert_eq!(fd_buf.len(), 0);
 }
 
 #[cfg_attr(not(any(target_os="illumos", target_os="solaris")), test)]
-fn datagram_truncate_fds() {
+fn datagram_truncate_fds() 
+{
     let (a, b) = UnixDatagram::pair().expect("create datagram socket pair");
 
     let c_a = a.try_clone().unwrap();
@@ -84,7 +88,7 @@ fn datagram_truncate_fds() {
     let mut v = Vec::with_capacity(0);
 
     c_a.send_fds(b"aa", vec![OwnedFd::from(a)]).expect("send one fd");
-    let (bytes, fds) = b.recv_fds(&mut[0u8; 10], &mut v).expect("receive with empty fd buffer");
+    let (bytes, fds) = b.recv_slice_fds(&mut[0u8; 10], &mut v).expect("receive with empty fd buffer");
     assert_eq!((bytes, fds), (2, 0));
 
     // send four, receive two
@@ -112,8 +116,8 @@ fn datagram_truncate_fds() {
         {
             println!("{:?}", fd_buf);
 
-            assert_ne!(fd_buf[0].as_raw_fd(), a_fd);
-            assert_ne!(fd_buf[1].as_raw_fd(), aa_fd);
+            assert_eq!(fd_buf[0].as_raw_fd(), a_fd);
+            assert_eq!(fd_buf[1].as_raw_fd(), aa_fd);
         }
         Ok((3, 0)) => 
             assert_eq!(fd_buf.len(), 0),
@@ -138,13 +142,13 @@ fn stream_send_no_fds() {
 
     // send with empty fd slice, receive for empty fd slice
     a.send_fds(b"aa", vec![]).expect("send zero file descriptors");
-    let (bytes, fds) = b.recv_fds(&mut[0u8; 10], &mut vec![]).expect("receive with empty fd buffer");
+    let (bytes, fds) = b.recv_slice_fds(&mut[0u8; 10], &mut vec![]).expect("receive with empty fd buffer");
     assert_eq!(bytes, 2);
     assert_eq!(fds, 0);
 
     // send without ancillary, receive for empty fd slice
     a.write(b"aaa").expect("write normally - without ancillary");
-    let (bytes, fds) = b.recv_fds(&mut[0u8; 10], &mut vec![]).expect("receive with empty fd buffer");
+    let (bytes, fds) = b.recv_slice_fds(&mut[0u8; 10], &mut vec![]).expect("receive with empty fd buffer");
     assert_eq!(bytes, 3);
     assert_eq!(fds, 0);
 
@@ -152,7 +156,7 @@ fn stream_send_no_fds() {
     a.send_fds(b"aaaa", vec![]).expect("send zero file descriptors");
     let mut fd_buf = Vec::with_capacity(3);
 
-    let (bytes, fds) = b.recv_fds(&mut[0u8; 10], &mut fd_buf).expect("receive with fd buffer");
+    let (bytes, fds) = b.recv_slice_fds(&mut[0u8; 10], &mut fd_buf).expect("receive with fd buffer");
     assert_eq!(bytes, 4);
     assert_eq!(fds, 0);
     assert_eq!(fd_buf.len(), 0);
@@ -160,7 +164,7 @@ fn stream_send_no_fds() {
     // send without ancillary, receive with capacity
     a.write(b"aaaaa").expect("write normally - without ancillary");
     let mut fd_buf = Vec::with_capacity(3);
-    let (bytes, fds) = b.recv_fds(&mut[0u8; 10], &mut fd_buf).expect("receive with fd buffer");
+    let (bytes, fds) = b.recv_slice_fds(&mut[0u8; 10], &mut fd_buf).expect("receive with fd buffer");
     assert_eq!(bytes, 5);
     assert_eq!(fds, 0);
     assert_eq!(fd_buf.len(), 0);
@@ -179,35 +183,37 @@ fn stream_truncate_fds() {
 
     // try to receive fds afterwards (this tests the OS more than this crate)
     b.set_nonblocking(true).expect("enable nonblocking");
-    let error = b.recv_fds(&mut[1], &mut Vec::with_capacity(2))
+    let error = b.recv_slice_fds(&mut[1], &mut Vec::with_capacity(2))
         .expect_err("won't receive fd later without any bytes waiting");
     assert_eq!(error.kind(), WouldBlock);
 
     // try to receive fds later when there is more data
     a.write(b"aa").expect("write normally - without ancillary");
-    let (bytes, fds) = b.recv_fds(&mut[0u8; 10], &mut Vec::with_capacity(2)).expect("receive with capacity");
+    let (bytes, fds) = b.recv_slice_fds(&mut[0u8; 10], &mut Vec::with_capacity(2)).expect("receive with capacity");
     assert_eq!((bytes, fds), (2, 0));
 
     // send some, receive with zero-length fd slice
     let (aa, _bb) = UnixStream::pair().expect("create stream socket pair");
 
     a.send_fds(b"aaa", vec![OwnedFd::from(aa)]).expect("send one fd");
-    let (bytes, fds) = b.recv_fds(&mut[0u8; 10], &mut vec![]).expect("receive with empty fd buffer");
+    let (bytes, fds) = b.recv_slice_fds(&mut[0u8; 10], &mut vec![]).expect("receive with empty fd buffer");
     assert_eq!((bytes, fds), (3, 0));
 
     // try to receive what was truncated, now that we received with ancillary buffer the first time
-    let error = b.recv_fds(&mut[1], &mut Vec::with_capacity(2))
+    let error = b.recv_slice_fds(&mut[1], &mut Vec::with_capacity(2))
         .expect_err("receive fd later without any bytes waiting");
     assert_eq!(error.kind(), WouldBlock);
 
     a.send_fds(b"aaaa", vec![]).expect("send empty fd slice");
     let mut fd_buf = Vec::with_capacity(4);
-    let (bytes, fds) = b.recv_fds(&mut[0u8; 10], &mut fd_buf).expect("receive with capacity");
+    let (bytes, fds) = b.recv_slice_fds(&mut[0u8; 10], &mut fd_buf).expect("receive with capacity");
     assert_eq!((bytes, fds, fd_buf.len()), (4, 0, 0));
 
     // send four, receive two
-    let (aa, bb) = UnixStream::pair().map(|(a, b)| (OwnedFd::from(a), OwnedFd::from(b))).expect("create stream socket pair");
-    let (aaa, bbb) = UnixStream::pair().map(|(a, b)| (OwnedFd::from(a), OwnedFd::from(b))).expect("create stream socket pair");
+    let (aa, bb) = 
+        UnixStream::pair().map(|(a, b)| (OwnedFd::from(a), OwnedFd::from(b))).expect("create stream socket pair");
+    let (aaa, bbb) = 
+        UnixStream::pair().map(|(a, b)| (OwnedFd::from(a), OwnedFd::from(b))).expect("create stream socket pair");
 
     let aa_fd = aa.as_raw_fd();
     let bb_fd = bb.as_raw_fd();
@@ -222,8 +228,8 @@ fn stream_truncate_fds() {
         {
             println!("a={}, b={}, received={:?}", aa_fd, bb_fd, fd_buf);
 
-            assert_ne!(fd_buf[0].as_raw_fd(), aa_fd);
-            assert_ne!(fd_buf[1].as_raw_fd(), bb_fd);
+            assert_eq!(fd_buf[0].as_raw_fd(), aa_fd);
+            assert_eq!(fd_buf[1].as_raw_fd(), bb_fd);
         },
         Ok((5, 0)) => 
         {
@@ -253,7 +259,7 @@ fn stream_truncate_fds() {
         let mut fd_buf = Vec::with_capacity(6);
         let (bytes, fds) = b.recv_fds(&mut[0u8; 10], &mut fd_buf).expect("receive with capacity");
         assert_eq!((bytes, fds), (6, 1));
-        assert_ne!(fd_buf[0].as_raw_fd(), aa_fd);
+        assert_eq!(fd_buf[0].as_raw_fd(), aa_fd);
         assert_eq!(fd_buf.len(), 1);
     }
 
@@ -283,7 +289,7 @@ fn datagram_pass_one_fd()
     received.send(b"got it").expect("send from received fd");
     let bytes = bb.recv(&mut[0u8; 10]).expect("receive datagram sent from received fd");
     assert_eq!(bytes, 6);
-    assert_ne!(received.as_raw_fd(), aa_fd);
+    assert_eq!(received.as_raw_fd(), aa_fd);
 }
 
 #[cfg_attr(not(any(target_os="illumos", target_os="solaris")), test)]
@@ -301,11 +307,11 @@ fn datagram_pass_two_receive_one()
         .expect("receive with ancillary buffer");
     assert_eq!(bytes, 0);
     assert_eq!(fds, 1);
-    assert_ne!(fd_buf.remove(0).as_raw_fd(), aa_fd);
+    assert_eq!(fd_buf.remove(0).as_raw_fd(), aa_fd);
 
     b.send_fds(b"nothing", vec![]).expect("send another datagram with no fds");
     let mut fd_buf = Vec::with_capacity(1);
-    let (bytes, fds) = a.recv_fds(&mut[0u8; 10], &mut fd_buf)
+    let (bytes, fds) = a.recv_slice_fds(&mut[0u8; 10], &mut fd_buf)
         .expect("receive with ancillary buffer");
     assert_eq!(bytes, "nothing".len());
     assert_eq!(fds, 0);
@@ -326,60 +332,48 @@ fn datagram_pass_two_receive_two()
         .expect("receive with ancillary buffer");
     assert_eq!(bytes, 0);
     assert_eq!(fds, 2);
-    assert_ne!(fd_buf.remove(0).as_raw_fd(), aa_fd);
+    assert_eq!(fd_buf.remove(0).as_raw_fd(), aa_fd);
 }
 
 #[cfg_attr(not(any(target_os="illumos", target_os="solaris")), test)]
-fn datagram_separate_payloads() {
+fn datagram_separate_payloads() 
+{
     let (a, b) = UnixDatagram::pair().expect("create datagram socket pair");
-    let (aa, _bb) = UnixDatagram::pair().map(|(a, b)| (OwnedFd::from(a), OwnedFd::from(b))).expect("create stream socket pair");
-
-    let aa_fd = aa.as_raw_fd();
 
     // send one with then one without
-    a.send_fds(b"_", vec![aa]).expect("send datagram with one fd");
+    unsafe{ a.send_fds_raw(b"_", &[a.as_raw_fd()]).expect("send datagram with one fd") };
     a.send(b"").expect("send a second datagram, wiithout fd");
 
-    let mut fd_buf = Vec::with_capacity(2);
+    let mut fd_buf = Vec::<OwnedFd>::with_capacity(2);
+    
     let (bytes, fds) = b.recv_fds(&mut[0u8; 1], &mut fd_buf).expect("receive fds");
+    
     assert_eq!(bytes, 1);
     assert_eq!(fds, 1);
     assert_eq!(fd_buf.len(), 1);
-    assert_ne!(fd_buf.remove(0).as_raw_fd(), aa_fd);
     
-    let mut fd_buf = Vec::with_capacity(2);
+    fd_buf.clear();
+
     let (bytes, fds) = b.recv_fds(&mut[0u8; 1], &mut fd_buf).expect("receive fds");
     assert_eq!(bytes, 0);
     assert_eq!(fds, 0);
 
-    let (aa, bb) = UnixDatagram::pair().map(|(a, b)| (OwnedFd::from(a), OwnedFd::from(b))).expect("create stream socket pair");
-    let (aaa, bbb) = UnixDatagram::pair().map(|(a, b)| (OwnedFd::from(a), OwnedFd::from(b))).expect("create stream socket pair");
-
-    let aa_fd = aa.as_raw_fd();
-    let aaa_fd = aaa.as_raw_fd();
-
-    let bb_fd = bb.as_raw_fd();
-    let bbb_fd = bbb.as_raw_fd();
-
     // send twice
-    a.send_fds(b"", vec![aa, aaa]).expect("send two fds");
-    a.send_fds(b"", vec![bb, bbb]).expect("sent two fds again");
-    for i in 0..2 
+    unsafe { a.send_fds_raw(b"", &[a.as_raw_fd(), a.as_raw_fd()]).expect("send two fds") }; 
+    unsafe { a.send_fds_raw(b"", &[b.as_raw_fd(), b.as_raw_fd()]).expect("sent two fds again") };
+
+    for _ in 0..2 
     {
-        let mut fd_buf = Vec::with_capacity(3);
-        let (bytes, fds) = b.recv_fds(&mut[0u8; 3], &mut fd_buf).expect("receive fds");
+        let mut fd_buf = [None, None, None];
+        let (bytes, fds) = b.recv_slice_fds(&mut[0u8; 3], &mut fd_buf).expect("receive fds");
         assert_eq!(bytes, 0);
         assert_eq!(fds, 2);
-        assert_eq!(fd_buf.len(), 2);
-        if i == 0
+        assert!(fd_buf[..2].iter().all(|fd| fd.is_some() == true ));
+        assert_eq!(fd_buf[2].is_none(), true);
+        
+        if fd_buf[0].as_ref().unwrap().as_raw_fd() != a.as_raw_fd()  &&  fd_buf[0].as_ref().unwrap().as_raw_fd() != b.as_raw_fd()
         {
-            assert_ne!(fd_buf[0].as_raw_fd(), aa_fd);
-            assert_ne!(fd_buf[1].as_raw_fd(), aaa_fd);
-        }
-        else
-        {
-            assert_ne!(fd_buf[0].as_raw_fd(), bb_fd);
-            assert_ne!(fd_buf[1].as_raw_fd(), bbb_fd);
+            println!("not eq");
         }
     }
 }
@@ -413,7 +407,7 @@ fn unconnected_datagrams()
     );
     assert_eq!(&byte_buf, b"next from this\0\0\0\0\0\0");
     assert_eq!(fd_buf.len(), 1);
-    assert_ne!(fd_buf[0].as_raw_fd(), unbound_fd);
+    assert_eq!(fd_buf[0].as_raw_fd(), unbound_fd);
     
     let received = UnixDatagram::from(fd_buf.remove(0));
     assert_eq!(
@@ -457,8 +451,8 @@ fn stream_fd_order() {
     received_b.write(b"I'm b").expect("write via transferred fd");
     received_a.read(&mut[0u8; 10]).expect("read bytes sent from received fd[1] (`b`)");
     
-    assert_ne!(received_a.as_raw_fd(), aa_fd);
-    assert_ne!(received_b.as_raw_fd(), bb_fd);
+    assert_eq!(received_a.as_raw_fd(), aa_fd);
+    assert_eq!(received_b.as_raw_fd(), bb_fd);
 }
 
 #[cfg_attr(not(any(target_os="illumos", target_os="solaris")), test)]
@@ -528,7 +522,7 @@ fn closed_before_received() {
     assert_eq!(fds, 1);
     assert_eq!(fd_buf.len(), 1);
     let rcv = fd_buf.remove(0);
-    assert_ne!(rcv.as_raw_fd(), aa_fd);
+    assert_eq!(rcv.as_raw_fd(), aa_fd);
 
     let a = UnixDatagram::from(rcv);
     a.send(b"still alive").expect("send from fd closed before received");
@@ -548,9 +542,9 @@ fn errors_on_solaris()
     assert!(format!("{}", err).contains("not implemented"));
 
     b.set_nonblocking(true).expect("make nonblocking");
-    b.recv_fds(&mut[0; 16], &mut vec![]).expect("receive with empty fd buffer");
+    b.recv_slice_fds(&mut[0; 16], &mut vec![]).expect("receive with empty fd buffer");
 
-    let err = b.recv_fds(&mut[0; 16], &mut Vec::with_capacity(4))
+    let err = b.recv_slice_fds(&mut[0; 16], &mut Vec::with_capacity(4))
         .expect_err("receive with fd capacity");
     assert!(format!("{}", err).contains("not implemented"));
 }

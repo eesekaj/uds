@@ -414,7 +414,7 @@ impl UnixSeqpacketConn
     {
         // Can't use writev() because we need to pass flags,
         // and the flags accepted by pwritev2() aren't the one we need to pass.
-        send_ancillary(&self, None, MSG_EOR, slices, Vec::new(), None)
+        send_ancillary(&self, None, MSG_EOR, slices, &[], None)
     }
     /// Reads a packet into multiple buffers.
     ///
@@ -431,13 +431,29 @@ impl UnixSeqpacketConn
     pub 
     fn send_fds(&self, bytes: &[u8], fds: Vec<OwnedFd>) -> Result<usize, io::Error> 
     {
-        send_ancillary(&self, None, MSG_EOR, &[IoSlice::new(bytes)], fds, None)
+        send_ancillary(&self, None, MSG_EOR, &[IoSlice::new(bytes)], 
+            fds.iter().map(|fd| fd.as_raw_fd()).collect::<Vec<RawFd>>().as_slice(), None)
+    }
+
+    /// Sends a packet with associated file descriptors. Raw descriptors.
+    pub unsafe 
+    fn send_fds_raw(&self, bytes: &[u8], fds: &[RawFd]) -> Result<usize, io::Error> 
+    {
+        send_ancillary(&self, None, MSG_EOR, &[IoSlice::new(bytes)], 
+            fds, None)
     }
 
     /// Receives a packet and associated file descriptors. A legacy method which 
     /// was in this crate since its author added it.
     /// 
-    /// See a [Self::recv_vectored_with_ancillary] for a new stdlib approach.
+    /// A FDs are placed into Vec with the specific capacity. 
+    /// 
+    /// A FDs will be truncated if the capacity is not large enough.
+    /// 
+    /// See a 
+    #[cfg_attr(not(feature="unsatable_preview"), doc="Self::recv_vectored_with_ancillary")]
+    #[cfg_attr(feature="unsatable_preview", doc="[Self::recv_vectored_with_ancillary]")]
+    ///  for a new stdlib approach.
     /// 
     /// # Returns 
     /// 
@@ -447,9 +463,59 @@ impl UnixSeqpacketConn
     /// 
     /// * 2 - a fd buffer length
     pub 
-    fn recv_fds(&self, byte_buffer: &mut[u8], fd_buffer: &mut Vec<OwnedFd>) -> Result<(usize, bool, usize), io::Error> 
+    fn recv_fds(&self, byte_buffer: &mut[u8], fd_buf: &mut Vec<OwnedFd>) -> Result<(usize, bool, usize), io::Error> 
     {
-        recv_fds(&self, None, &mut[IoSliceMut::new(byte_buffer)], Some(fd_buffer))
+        recv_fds(&self, None, &mut[IoSliceMut::new(byte_buffer)], fd_buf)
+    }
+
+    /// Receives a packet and associated file descriptors. A legacy method which 
+    /// was in this crate since its author added it.
+    /// 
+    /// A FDs are placed into pre-allocated mutable slice. Received valies are stored
+    /// in reception sequence. The first [Option::None] does mean the rest are None too.
+    /// 
+    /// A FDs will be truncated if the length of the slice is not enough.
+    /// 
+    /// See a 
+    #[cfg_attr(not(feature="unsatable_preview"), doc="Self::recv_vectored_with_ancillary")]
+    #[cfg_attr(feature="unsatable_preview", doc="[Self::recv_vectored_with_ancillary]")]
+    /// for a new stdlib approach.
+    /// 
+    /// # Returns 
+    /// 
+    /// * 0 - amount of bytes received
+    /// 
+    /// * 1 - is truncated
+    /// 
+    /// * 2 - a fd buffer length
+    pub 
+    fn recv_slice_fds(&self,  buf: &mut[u8], fd_buf: &mut [Option<OwnedFd>]) -> Result<(usize, usize), io::Error> 
+    {
+        recv_slice_fds(self, None, &mut[IoSliceMut::new(buf)], fd_buf)
+            .map(|(bytes, _, fds)| (bytes, fds) )
+    }
+
+    /// A old (provided by crate, legacy) parser of the ancillary data.
+    /// 
+    /// Returns an iterator to the ancillary data.
+    /// 
+    /// # Returns
+    /// 
+    /// A [Result] is returned with tuple:
+    /// 
+    /// * `0` - a count of bytes.
+    /// 
+    /// * `1` - [Ancillary] a ancillary iterator.
+    /// 
+    pub 
+    fn recv_vectored_ancillary<'a>(
+        &self,
+        flags: i32, 
+        bufs: &mut [IoSliceMut<'_>],
+        ancillary: &'a mut AncillaryBuf,
+    ) -> Result<(usize, Ancillary<'a>), io::Error> 
+    {
+        recv_ancillary(self, None, flags, bufs, ancillary)
     }
 
     /// A new (provided by std) parser of the ancillary data

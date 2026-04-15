@@ -1,7 +1,7 @@
 #![cfg(all(not(target_vendor="apple"), target_family = "unix", feature = "unsatable_preview"))]
 #![feature(unix_socket_ancillary_data)]
 
-use std::{io::{IoSlice, IoSliceMut}, os::{fd::{IntoRawFd, OwnedFd}, unix::net::{AncillaryData, SocketAncillary, UnixDatagram}}};
+use std::{io::{IoSlice, IoSliceMut}, os::{fd::{AsRawFd, IntoRawFd, OwnedFd, RawFd}, unix::net::{AncillaryData, SocketAncillary, UnixDatagram}}};
 
 use libc::MSG_EOR;
 
@@ -35,7 +35,9 @@ fn test_1_simple_legacy_to_new()
 
     let buf0 = b"Here I come";
 
-    freya_side_a.send_fds(buf0, vec![OwnedFd::from(a), OwnedFd::from(b), OwnedFd::from(aa)])
+    // sending
+    freya_side_a
+        .send_fds(buf0, vec![OwnedFd::from(a), OwnedFd::from(b), OwnedFd::from(aa)])
         .expect("send stdin, stdout and stderr");
 
     let mut buf = [0_u8; 256];
@@ -44,6 +46,7 @@ fn test_1_simple_legacy_to_new()
     let mut ancillary_buffer = [0; 128];
     let mut ancillary = SocketAncillary::new(&mut ancillary_buffer[..]);
     
+    // receiving
     let (count, trunc) = freya_side_b.recv_vectored_with_ancillary(0, bufs, &mut ancillary).unwrap();
 
     println!("count: {}, trunc: {}, anscil len: {}", count, trunc, ancillary.len());
@@ -84,8 +87,7 @@ fn test_2_simple_new_to_legacy()
         uds_fork::UnixSeqpacketConn::connect_unix_addr(&addr)
             .expect("connect to listener");
 
-    let (freya_side_b, _) = listener.accept_unix_addr()
-        .expect("accept connection");
+    let (freya_side_b, _) = listener.accept_unix_addr().expect("accept connection");
 
     let (a, b) = UnixDatagram::pair().expect("create datagram socket pair");
     let (aa, _bb) = UnixDatagram::pair().expect("create datagram socket pair");
@@ -94,11 +96,14 @@ fn test_2_simple_new_to_legacy()
     let mut ancillary_buffer = [0; 128];
     let mut ancillary = SocketAncillary::new(&mut ancillary_buffer[..]);
 
-    let fds = [OwnedFd::from(a).into_raw_fd(), OwnedFd::from(b).into_raw_fd(), OwnedFd::from(aa).into_raw_fd()];
+    let fds = [OwnedFd::from(a), OwnedFd::from(b), OwnedFd::from(aa)];
 
-    ancillary.add_fds(&fds[..]);
+    let fds_raw = fds.iter().map(|fd| fd.as_raw_fd()).collect::<Vec<RawFd>>();
 
-    freya_side_a.send_vectored_with_ancillary(MSG_EOR, &[IoSlice::new(buf0.as_slice())], &mut ancillary)
+    ancillary.add_fds(&fds_raw[..]);
+
+    freya_side_a
+        .send_vectored_with_ancillary(MSG_EOR, &[IoSlice::new(buf0.as_slice())], &mut ancillary)
         .expect("send stdin, stdout and stderr");
 
     let mut fd_buf = Vec::with_capacity(4);
@@ -142,11 +147,14 @@ fn test_3_simple_new_to_new()
     let mut ancillary_buffer = [0; 128];
     let mut ancillary = SocketAncillary::new(&mut ancillary_buffer[..]);
 
-    let fds = [OwnedFd::from(a).into_raw_fd(), OwnedFd::from(b).into_raw_fd(), OwnedFd::from(aa).into_raw_fd()];
+    let fds = [OwnedFd::from(a), OwnedFd::from(b), OwnedFd::from(aa)];
 
-    ancillary.add_fds(&fds[..]);
+    let fds_raw = fds.iter().map(|fd| fd.as_raw_fd()).collect::<Vec<RawFd>>();
 
-    freya_side_a.send_vectored_with_ancillary(MSG_EOR, &[IoSlice::new(buf0.as_slice())], &mut ancillary)
+    ancillary.add_fds(&fds_raw[..]);
+
+    freya_side_a
+        .send_vectored_with_ancillary(MSG_EOR, &[IoSlice::new(buf0.as_slice())], &mut ancillary)
         .expect("send stdin, stdout and stderr");
 
     // receive

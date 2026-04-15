@@ -1,6 +1,6 @@
 [package]
 name = "uds-fork"
-version = "0.8.0"
+version = "0.9.0"
 description = """
 A unix domain socket crate that supports abstract addresses, fd-passing, seqpacket and windows unix stream sockets.
 """
@@ -56,3 +56,13 @@ targets = [
 # "x86_64-unknown-dragonfly",
 #   "x86_64-unknown-netbsd",
 #   "x86_64-unknown-openbsd",
+
+[[example]]
+name = "recv_ancillary"
+path = "examples/recv_ancillary.rs"
+required-features = ["xio-rs"]
+
+[[example]]
+name = "recv_anclillary_std"
+path = "examples/recv_anclillary_std.rs"
+required-features = ["unsatable_preview"]

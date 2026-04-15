@@ -3,7 +3,7 @@ use std::
 {
     ffi::c_void, io::{self, IoSlice, IoSliceMut}, os::
     {
-        fd::{AsFd, OwnedFd}, 
+        fd::{AsFd, OwnedFd, RawFd}, 
         unix::{io::{AsRawFd, FromRawFd}, net::{UnixDatagram, UnixListener, UnixStream}} 
     }
 };
@@ -41,13 +41,27 @@ pub trait UnixStreamExt: AsFd + AsRawFd + FromRawFd
     /// Sends file descriptors in addition to bytes.
     fn send_fds(&self, bytes: &[u8], fds: Vec<OwnedFd>) -> Result<usize, io::Error> 
     {
-        send_ancillary(self, None, 0, &[IoSlice::new(bytes)], fds, None)
+        let fds_raw = fds.iter().map(|fd| fd.as_raw_fd()).collect::<Vec<RawFd>>();
+
+        send_ancillary(self, None, 0, &[IoSlice::new(bytes)], &fds_raw, None)
     }
 
     /// Receives file descriptors in addition to bytes.
-    fn recv_fds(&self, buf: &mut[u8], fd_buf: &mut Vec<OwnedFd>) -> Result<(usize, usize), io::Error> 
+    /// 
+    /// A FDs are placed into pre-allocated mutable slice. Received valies are stored
+    /// in reception sequence. The first [Option::None] does mean the rest are None too.
+    fn recv_slice_fds(&self, buf: &mut[u8], fd_buf: &mut [Option<OwnedFd>]) -> Result<(usize, usize), io::Error> 
     {
-        recv_fds(self, None, &mut[IoSliceMut::new(buf)], Some(fd_buf))
+        recv_slice_fds(self, None, &mut[IoSliceMut::new(buf)], fd_buf)
+            .map(|(bytes, _, fds)| (bytes, fds) )
+    }
+
+    /// A FDs are placed into Vec with the specific capacity. 
+    /// 
+    /// A FDs will be truncated if the capacity is not large enough.
+    fn recv_fds(&self,  buf: &mut[u8], fd_buf: &mut Vec<OwnedFd>) -> Result<(usize, usize), io::Error> 
+    {
+        recv_fds(self, None, &mut[IoSliceMut::new(buf)], fd_buf)
             .map(|(bytes, _, fds)| (bytes, fds) )
     }
 
@@ -305,7 +319,7 @@ pub trait UnixDatagramExt: AsFd + AsRawFd + FromRawFd
     /// ```
     fn send_vectored_to_unix_addr(&self,  datagram: &[IoSlice],  addr: &UnixSocketAddr) -> Result<usize, io::Error> 
     {
-        send_ancillary(self, Some(addr), 0, datagram, Vec::new(), None)
+        send_ancillary(self, Some(addr), 0, datagram, &[], None)
     }
 
     /// Receives from any peer, storing its address in a type that exposes
@@ -374,7 +388,7 @@ pub trait UnixDatagramExt: AsFd + AsRawFd + FromRawFd
     {
         let mut addr = UnixSocketAddr::default();
 
-        recv_fds(self, Some(&mut addr), bufs, None)
+        recv_slice_fds(self, Some(&mut addr), bufs, &mut [])
             .map(|(bytes, _, _)| (bytes, addr) )
     }
     
@@ -468,29 +482,62 @@ pub trait UnixDatagramExt: AsFd + AsRawFd + FromRawFd
     /// Sends file descriptors along with the datagram, on an unconnected socket.
     fn send_fds_to(&self, datagram: &[u8], fds: Vec<OwnedFd>, addr: &UnixSocketAddr) -> Result<usize, io::Error> 
     {
+        let fds_raw = fds.iter().map(|fd| fd.as_raw_fd()).collect::<Vec<RawFd>>();
+
+        send_ancillary(self, Some(addr), 0, &[IoSlice::new(datagram)], &fds_raw, None)
+    }
+
+    unsafe 
+    fn send_fds_to_raw(&self, datagram: &[u8], fds: &[RawFd], addr: &UnixSocketAddr) -> Result<usize, io::Error> 
+    {
         send_ancillary(self, Some(addr), 0, &[IoSlice::new(datagram)], fds, None)
     }
 
     /// Sends file descriptors along with the datagram, on a connected socket.
     fn send_fds(&self, datagram: &[u8], fds: Vec<OwnedFd>) -> Result<usize, io::Error> 
     {
-        send_ancillary(self, None, 0, &[IoSlice::new(datagram)], fds, None)
+        let fds_raw = fds.iter().map(|fd| fd.as_raw_fd()).collect::<Vec<RawFd>>();
+
+        send_ancillary(self, None, 0, &[IoSlice::new(datagram)], &fds_raw, None)
+    }
+
+    unsafe 
+    fn send_fds_raw(&self, datagram: &[u8], fds: &[RawFd]) -> Result<usize, io::Error> 
+    {
+        send_ancillary(self, None, 0, &[IoSlice::new(datagram)], 
+            fds, None)
     }
 
     /// Receives file descriptors along with the datagram, on an unconnected socket
+    fn recv_slice_fds_from(&self,  buf: &mut[u8],  fd_buf: &mut [Option<OwnedFd>]) -> Result<(usize, usize, UnixSocketAddr), io::Error> 
+    {
+        let mut addr = UnixSocketAddr::default();
+        recv_slice_fds(self, Some(&mut addr), &mut[IoSliceMut::new(buf)], fd_buf)
+            .map(|(bytes, _, fds)| (bytes, fds, addr) )
+    }
+
     fn recv_fds_from(&self,  buf: &mut[u8],  fd_buf: &mut Vec<OwnedFd>) -> Result<(usize, usize, UnixSocketAddr), io::Error> 
     {
         let mut addr = UnixSocketAddr::default();
-        recv_fds(self, Some(&mut addr), &mut[IoSliceMut::new(buf)], Some(fd_buf))
+
+        recv_fds(self, Some(&mut addr), &mut[IoSliceMut::new(buf)], fd_buf)
             .map(|(bytes, _, fds)| (bytes, fds, addr) )
     }
 
     /// Receives file descriptors along with the datagram, on a connected socket
-    fn recv_fds(&self,  buf: &mut[u8],  fd_buf: &mut Vec<OwnedFd>) -> Result<(usize, usize), io::Error> 
+    fn recv_slice_fds(&self,  buf: &mut[u8],  fd_buf: &mut [Option<OwnedFd>]) -> Result<(usize, usize), io::Error> 
     {
-        recv_fds(self, None, &mut[IoSliceMut::new(buf)], Some(fd_buf))
+        recv_slice_fds(self, None, &mut[IoSliceMut::new(buf)], fd_buf)
             .map(|(bytes, _, fds)| (bytes, fds) )
     }
+
+    
+    fn recv_fds(&self,  buf: &mut[u8],  fd_buf: &mut Vec<OwnedFd>) -> Result<(usize, usize), io::Error> 
+    {
+        recv_fds(self, None, &mut[IoSliceMut::new(buf)], fd_buf)
+            .map(|(bytes, _, fds)| (bytes, fds) )
+    }
+
 
     /// Returns the credentials of the process that created a socket pair.
     ///

@@ -102,19 +102,22 @@ fn stream_connected_from()
 fn received() {
     use std::os::fd::OwnedFd;
 
+    
     let (foo, bar) = UnixStream::pair().expect("create unix stream pair");
 
-    let c_foo = foo.try_clone().unwrap();
+    let (foo2, _bar2) = UnixStream::pair().expect("create unix stream pair");
 
-    c_foo.send_fds(b"Hello Bar, it's Foo, your peer", vec![OwnedFd::from(foo)]).expect("send fd");
+    let foo2fd = foo2.as_raw_fd();
+    foo.send_fds(b"Hello Bar, it's Foo, your peer", vec![OwnedFd::from(foo2)]).expect("send fd");
     
-    let mut fd_buf = Vec::with_capacity(10);
+    let mut fd_buf = [const { None }; 10];
     
-    let (_, num_fds) = bar.recv_fds(&mut[b'\0'; 8], &mut fd_buf).expect("receive ancillary");
+    let (_, num_fds) = bar.recv_slice_fds(&mut[b'\0'; 8], &mut fd_buf).expect("receive ancillary");
     
     assert_eq!(num_fds, 1);
 
-    assert!(is_cloexec(fd_buf[0].as_raw_fd()));
+    assert!(is_cloexec(fd_buf[0].as_ref().unwrap().as_raw_fd()));
+    assert_eq!(foo2fd, fd_buf[0].as_ref().unwrap().as_raw_fd());
 }
 
 #[test] /// tests that cloexec_tester detects a fd without cloexec
