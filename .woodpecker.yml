@@ -10,6 +10,7 @@ steps:
       - rustup default $RUST
       - cargo check
       - cargo test
+
   - name: Linux_x86_64_nightly
     image: rust
     when: 
@@ -20,6 +21,7 @@ steps:
       - rustup default nightly
       - cargo check --features unsatable_preview
       - cargo test --features unsatable_preview
+      
   - name: FreeBSD_15_x86_64
     image: freebsd/freebsd-runtime:15
     environment:
