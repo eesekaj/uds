@@ -19,5 +19,6 @@ steps:
           RUST: nightly
     commands:
       - rustup default nightly
+      - rustup override set nightly
       - cargo check --features unsatable_preview
       - cargo test --features unsatable_preview
