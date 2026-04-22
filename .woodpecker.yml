@@ -15,7 +15,7 @@ steps:
     image: rust
     when: 
       - event: [push, pull_request]
-      - matrix: 
+        matrix: 
         RUST: nightly
     commands:
       - rustup default nightly
