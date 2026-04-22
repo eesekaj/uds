@@ -10,3 +10,14 @@ steps:
       - rustup default $RUST
       - cargo check
       - cargo test
+
+  - name: Linux_x86_64_nightly
+    image: rust
+    when: 
+      - event: [push, pull_request]
+        matrix: 
+          RUST: nightly
+    commands:
+      - rustup default nightly
+      - cargo check --features unsatable_preview
+      - cargo test --features unsatable_preview
