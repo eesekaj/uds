@@ -6,8 +6,8 @@ matrix:
 
 steps:
   - name: FreeBSD_x86_64
-    image: localhost/freebsd-runtime:latest
-    pull: false
+    image: rust
+  #  pull: false
     when:
       - event: [push, pull_request]
         matrix:
@@ -16,7 +16,7 @@ steps:
     commands:
       - echo "Running on $(uname -m)"
       - echo "Woodpecker Matrix Platform is ${PLATFORM}"
-      - pkg add rust 
+  #    - pkg add rust 
       - rustc --version
       - rustup default $RUST
       - cargo check
