@@ -12,7 +12,8 @@ steps:
   - name: Linux_x86_64
     image: rust
     when:
-      - platform: linux/amd64
+      matrix:
+        PLATFORM: linux/amd64
     commands:
       - echo "Running on $(uname -m)"
       - echo "Woodpecker Matrix Platform is ${PLATFORM}"
