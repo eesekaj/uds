@@ -1,14 +1,15 @@
 matrix:
   RUST: [stable, nightly]
+  platform: 
+    - linux/amd64
+    - freebsd/amd64
 
 steps:
   - name: Linux_x86_64
     image: rust
-    settings: 
-      platforms: 
-        - linux/amd64
     when:
-      event: [push, pull_request]
+      - event: [push, pull_request]
+        platform: linux/amd64
     commands:
       - rustup default $RUST
       - cargo check
@@ -16,11 +17,9 @@ steps:
 
   - name: Linux_x86_64_nightly
     image: rust
-    settings: 
-      platforms: 
-        - linux/amd64
     when: 
       - event: [push, pull_request]
+        platform: linux/amd64
         matrix: 
           RUST: nightly
     commands:
@@ -31,11 +30,9 @@ steps:
 
   - name: FreeBSD_x86_64
     image: rust
-    settings: 
-      platforms: 
-        - freebsd/amd64
     when:
-      event: [push, pull_request]
+      - event: [push, pull_request]
+        platform: freebsd/amd64
     commands:
       - rustup default $RUST
       - cargo check
