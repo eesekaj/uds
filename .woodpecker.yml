@@ -1,11 +1,13 @@
 matrix:
   RUST: [stable, nightly]
 
+
 steps:
   - name: Linux_x86_64
     image: rust
     when:
-      - event: [push, pull_request]
+      - platform: linux/amd64
+        event: [push, pull_request]
     commands:
       - rustup default $RUST
       - cargo check
@@ -25,11 +27,12 @@ steps:
       - cargo test --features unsatable_preview
 
   - name: FreeBSD_x86_64
-    image: rust
+    image: localhost/freebsd-runtime
     when:
       - event: [push, pull_request]
         platform: freebsd/amd64
     commands:
+      - pkg add rust
       - rustup default $RUST
       - cargo check
       - cargo test
