@@ -5,18 +5,19 @@ matrix:
     - freebsd/amd64
 
 steps:
-  - name: Linux_x86_64
-    image: rust
-    when: 
+  - name: FreeBSD_x86_64
+    image: localhost/freebsd-runtime:15.0-RELEASE-amd64
+    when:
       - event: [push, pull_request]
         matrix:
           RUST: stable
-          PLATFORM: linux/amd64
+          PLATFORM: freebsd/amd64
     commands:
-      - echo "Running on $(uname -a)"
+      - echo "Running on $(uname -m)"
       - echo "Woodpecker Matrix Platform is ${PLATFORM}"
+      - pkg add rust
+      - rustc --version
       - rustup default $RUST
       - cargo check
       - cargo test
-
 
