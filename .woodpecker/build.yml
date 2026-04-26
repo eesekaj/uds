@@ -6,7 +6,8 @@ matrix:
 
 steps:
   - name: FreeBSD_x86_64
-    image: localhost/freebsd-runtime
+    image: localhost/freebsd-runtime:latest
+    pull: never
     when:
       - event: [push, pull_request]
         matrix:
