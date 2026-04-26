@@ -14,6 +14,8 @@ steps:
     when:
       - platform: linux/amd64
     commands:
+      - echo "Running on $(uname -m)"
+      - echo "Woodpecker Matrix Platform is ${PLATFORM}"
       - rustup default $RUST
       - cargo check
       - cargo test
@@ -25,6 +27,8 @@ steps:
         matrix: 
           RUST: nightly
     commands:
+      - echo "Running on $(uname -m)"
+      - echo "Woodpecker Matrix Platform is ${PLATFORM}"
       - rustup default nightly
       - rustup override set nightly
       - cargo check --features unsatable_preview
@@ -35,6 +39,8 @@ steps:
     when:
       - platform: freebsd/amd64
     commands:
+      - echo "Running on $(uname -m)"
+      - echo "Woodpecker Matrix Platform is ${PLATFORM}"
       - pkg add rust
       - rustup default $RUST
       - cargo check
