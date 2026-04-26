@@ -6,7 +6,7 @@ matrix:
 
 steps:
   - name: FreeBSD_x86_64
-    image: localhost/freebsd-runtime:15.0-RELEASE-amd64
+    image: quay.io/matiaspizarro/freebsd-base:14.3
   #  pull: false
     when:
       - event: [push, pull_request]
