@@ -6,7 +6,7 @@ matrix:
 
 steps:
   - name: FreeBSD_x86_64
-    image: freebsd/freebsd-runtime:15.snap
+    image: localhost/freebsd-runtime:15.0-RELEASE-amd64
   #  pull: false
     when:
       - event: [push, pull_request]
