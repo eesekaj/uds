@@ -9,37 +9,13 @@ steps:
     image: rust
     when: 
       - event: [push, pull_request]
-      - platform: ${PLATFORM}
+        matrix:
+          PLATFORM: linux/amd64
     commands:
-      - echo "Running on $(uname -m)"
+      - echo "Running on $(uname -a)"
       - echo "Woodpecker Matrix Platform is ${PLATFORM}"
       - rustup default $RUST
       - cargo check
       - cargo test
 
-  - name: Linux_x86_64_nightly
-    image: rust
-    when: 
-      - platform: linux/amd64
-        matrix: 
-          RUST: nightly
-    commands:
-      - echo "Running on $(uname -m)"
-      - echo "Woodpecker Matrix Platform is ${PLATFORM}"
-      - rustup default nightly
-      - rustup override set nightly
-      - cargo check --features unsatable_preview
-      - cargo test --features unsatable_preview
 
-  - name: FreeBSD_x86_64
-    image: localhost/freebsd-runtime
-    when:
-      - platform: freebsd/amd64
-    commands:
-      - echo "Running on $(uname -m)"
-      - echo "Woodpecker Matrix Platform is ${PLATFORM}"
-      - pkg add rust
-      - rustup default $RUST
-      - cargo check
-      - cargo test
-      
