@@ -10,6 +10,7 @@ steps:
     when: 
       - event: [push, pull_request]
         matrix:
+          RUST: stable
           PLATFORM: linux/amd64
     commands:
       - echo "Running on $(uname -a)"
@@ -23,6 +24,7 @@ steps:
     when:
       - event: [push, pull_request]
         matrix:
+          RUST: stable
           PLATFORM: freebsd/amd64
     commands:
       - echo "Running on $(uname -m)"
