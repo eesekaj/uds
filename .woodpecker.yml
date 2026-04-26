@@ -4,6 +4,9 @@ matrix:
 steps:
   - name: Linux_x86_64
     image: rust
+    settings: 
+      platforms: 
+        - linux/amd64
     when:
       event: [push, pull_request]
     commands:
@@ -13,6 +16,9 @@ steps:
 
   - name: Linux_x86_64_nightly
     image: rust
+    settings: 
+      platforms: 
+        - linux/amd64
     when: 
       - event: [push, pull_request]
         matrix: 
@@ -22,3 +28,16 @@ steps:
       - rustup override set nightly
       - cargo check --features unsatable_preview
       - cargo test --features unsatable_preview
+
+  - name: FreeBSD_x86_64
+    image: rust
+    settings: 
+      platforms: 
+        - freebsd/amd64
+    when:
+      event: [push, pull_request]
+    commands:
+      - rustup default $RUST
+      - cargo check
+      - cargo test
+      
