@@ -18,4 +18,17 @@ steps:
       - cargo check
       - cargo test
 
-
+  - name: FreeBSD_x86_64
+    image: localhost/freebsd-runtime
+    when:
+      - event: [push, pull_request]
+        matrix:
+          PLATFORM: freebsd/amd64
+    commands:
+      - echo "Running on $(uname -m)"
+      - echo "Woodpecker Matrix Platform is ${PLATFORM}"
+      - pkg add rust
+      - rustup default $RUST
+      - cargo check
+      - cargo test
+      
