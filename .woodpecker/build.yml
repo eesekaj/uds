@@ -6,8 +6,8 @@ matrix:
 
 steps:
   - name: FreeBSD_x86_64
-    image: docker.io/freebsd/freebsd-runtime:15.snap
-    pull: true
+    image: localhost/freebsd-runtime:15.0-RELEASE-amd64
+    #pull: true
     when:
       - event: [push, pull_request]
         matrix:
