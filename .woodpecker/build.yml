@@ -4,6 +4,10 @@ matrix:
     - linux/amd64
     - freebsd/amd64
 
+clone:
+  git:
+    image: localhost/woodpeckerci/plugin-git:latest
+    
 steps:
   - name: FreeBSD_x86_64
     image: localhost/freebsd-runtime:15.0-RELEASE-amd64
