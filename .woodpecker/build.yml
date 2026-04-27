@@ -7,8 +7,10 @@ matrix:
 clone:
   - name: git
     image: localhost/woodpeckerci/plugin-git:latest
+    pull: false
     settings: 
-      platform: freebsd/amd64
+      when: 
+        - platform: freebsd/amd64
       
 
 steps:
