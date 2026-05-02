@@ -23,9 +23,13 @@ jobs:
         with: 
           operating_system: freebsd
           version: '15.0'
+          shell: bash
+          memory: 2G
+          cpu_count: 2
           run: |
             uname -a
-            pkg add rust
+            whoami
+            pkg install rust
             cargo check --tests --examples
             cargo build --tests --examples
             cargo test
