@@ -12,3 +12,20 @@ jobs:
           echo "Running on Ubuntu!"
           cargo check --tests --examples
           cargo build --tests --examples
+          cargo test
+  freebsd-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check Rust Stable FreeBSD
+        uses: cross-platform-actions/action@v1.0.0
+        with: 
+          operating_system: freebsd
+          version: '15.0'
+          run: |
+            uname -a
+            pkg add rust
+            cargo check --tests --examples
+            cargo build --tests --examples
+            cargo test
