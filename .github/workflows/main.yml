@@ -10,6 +10,7 @@ jobs:
       - name: Check Rust Stable
         run: |
           echo "Running on Ubuntu!"
+          rustc --version
           cargo check --tests --examples
           cargo build --tests --examples
           cargo test
@@ -30,6 +31,50 @@ jobs:
             uname -a
             whoami
             sudo pkg install -y rust
+            rustc --version
+            cargo check --tests --examples
+            cargo build --tests --examples
+            cargo test
+  openbsd-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check Rust Stable OpenBSD
+        uses: cross-platform-actions/action@v1.0.0
+        with: 
+          operating_system: openbsd
+          version: '7.8'
+          shell: bash
+          memory: 2G
+          cpu_count: 2
+          run: |
+            uname -a
+            whoami
+            doas pkg_add -y rust
+            rustc --version
+            cargo check --tests --examples
+            cargo build --tests --examples
+            cargo test
+  netbsd-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check Rust Stable NetBSD
+        uses: cross-platform-actions/action@v1.0.0
+        with: 
+          operating_system: netbsd
+          version: '10.1'
+          shell: bash
+          memory: 2G
+          cpu_count: 2
+          run: |
+            uname -a
+            whoami
+            sudo pkgin update
+            sudo pkgin -y install rust
+            rustc --version
             cargo check --tests --examples
             cargo build --tests --examples
             cargo test
