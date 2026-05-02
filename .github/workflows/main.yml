@@ -1,0 +1,14 @@
+name: CI Rust UDS
+on: [push, pull_request]
+
+jobs:
+  linux-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Rust Stable
+        run: |
+          echo "Running on Ubuntu!"
+          cargo check --tests --examples
+          cargo build --tests --examples
