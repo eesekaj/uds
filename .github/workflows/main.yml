@@ -3,7 +3,7 @@ on: [push, pull_request]
 
 jobs:
   linux-test:
-    runs-on: ubuntu-latest-selfhosted
+    runs-on: self-hosted 
     steps:
       - uses: actions/checkout@v4
 
@@ -20,7 +20,7 @@ jobs:
     needs: linux-test
     if: always()
 
-    runs-on: ubuntu-latest-selfhosted
+    runs-on: self-hosted 
    # container:
    #   image: ubuntu-vm:runner-24.04
    #   volumes:
@@ -67,7 +67,7 @@ jobs:
     needs: freebsd-test
     if: always()
 
-    runs-on: ubuntu-latest-selfhosted
+    runs-on: self-hosted 
     steps:
       - uses: actions/checkout@v6
 
@@ -107,7 +107,7 @@ jobs:
     needs: openbsd-test
     if: always()
 
-    runs-on: ubuntu-latest-selfhosted
+    runs-on: self-hosted 
     steps:
       - uses: actions/checkout@v6
 
