@@ -14,66 +14,109 @@ jobs:
           cargo check --tests --examples
           cargo build --tests --examples
           cargo test
+
+# FreeeBSD          
   freebsd-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
+      - name: Loop check
+        run: |
+          ls /dev | grep kvm|loop
+
+      - name: Start server background process
+        run: |
+          python3 -m http.server 8080 --directory /vm_images &
+          sleep 2 # Give it a second to start
+
+      - name: Test server
+        run: |
+          ls -la /vm_images
+          curl --head http://localhost:8080/freebsd-15.0-x86-64.qcow2
+
       - name: Check Rust Stable FreeBSD
         uses: cross-platform-actions/action@v1.0.0
         with: 
           operating_system: freebsd
+          image_url: http://localhost:8080/freebsd-15.0-x86-64.qcow2
           version: '15.0'
           shell: bash
-          memory: 2G
-          cpu_count: 2
+          memory: 4G
+          cpu_count: 3
           run: |
             uname -a
             whoami
-            sudo pkg install -y rust
             rustc --version
             cargo check --tests --examples
             cargo build --tests --examples
             cargo test
+
+# OpenBSD
   openbsd-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
+      - name: Loop check
+        run: |
+          ls /dev | grep kvm|loop
+
+      - name: Start server background process
+        run: |
+          python3 -m http.server 8080 --directory /vm_images &
+          sleep 2 # Give it a second to start
+
+      - name: Test server
+        run: |
+          ls -la /vm_images
+          curl --head http://localhost:8080/openbsd-7.8-x86-64.qcow2
+
       - name: Check Rust Stable OpenBSD
         uses: cross-platform-actions/action@v1.0.0
         with: 
           operating_system: openbsd
+          image_url: http://localhost:8080/openbsd-7.8-x86-64.qcow2
           version: '7.8'
           shell: bash
-          memory: 2G
-          cpu_count: 2
+          memory: 4G
+          cpu_count: 3
           run: |
             uname -a
             whoami
-            doas pkg_add -y rust
             rustc --version
             cargo check --tests --examples
             cargo build --tests --examples
             cargo test
+
+# NetBSD ----
   netbsd-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - name: Start server background process
+        run: |
+          python3 -m http.server 8080 --directory /vm_images &
+          sleep 2 # Give it a second to start
+
+      - name: Test server
+        run: |
+          ls -la /vm_images
+          curl --head http://localhost:8080/netbsd-10.1-x86-64.qcow2
 
       - name: Check Rust Stable NetBSD
         uses: cross-platform-actions/action@v1.0.0
         with: 
           operating_system: netbsd
           version: '10.1'
+          image_url: http://localhost:8080/netbsd-10.1-x86-64.qcow2
           shell: bash
-          memory: 2G
-          cpu_count: 2
+          memory: 4G
+          cpu_count: 3
           run: |
             uname -a
             whoami
-            sudo pkgin update
-            sudo pkgin -y install rust
             rustc --version
             cargo check --tests --examples
             cargo build --tests --examples
