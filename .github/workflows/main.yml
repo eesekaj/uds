@@ -9,12 +9,13 @@ jobs:
 
       - name: Check Rust Stable
         uses: docker://registry:5000/ubuntu-vm:runner-24.04
-        run: |
-          echo "Running on Ubuntu!"
-          rustc --version
-          cargo check --tests --examples
-          cargo build --tests --examples
-          cargo test
+        with:
+          run: |
+            echo "Running on Ubuntu!"
+            rustc --version
+            cargo check --tests --examples
+            cargo build --tests --examples
+            cargo test
 
 # FreeeBSD          
   freebsd-test:
