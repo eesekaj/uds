@@ -21,16 +21,10 @@ jobs:
     if: always()
 
     runs-on: ubuntu-latest
-
-    services:
-      # The service name becomes the hostname (e.g., http://my-web-server)
-      my-web-server:
-        image: nginx:stable
-        volumes: 
-          - /vm_images:/usr/share/nginx/html:ro
-        ports:
-          - 8081:80
-
+    container:
+      image: ubuntu-latest
+      volumes:
+        - /vm_images:/vm_images
 
     steps:
       - uses: actions/checkout@v6
@@ -47,7 +41,6 @@ jobs:
 
       - name: Test server
         run: |
-          curl --head http://my-web-server:8081/freebsd-15.0-x86-64.qcow2
           ls -ls /
           ls -la /vm_images
           curl --head http://localhost:8080/freebsd-15.0-x86-64.qcow2
