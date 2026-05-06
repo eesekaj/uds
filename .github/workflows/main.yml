@@ -104,10 +104,10 @@ jobs:
 
 # NetBSD ----
   netbsd-test:
-    needs: ubuntu-latest-selfhosted
+    needs: openbsd-test
     if: always()
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-selfhosted
     steps:
       - uses: actions/checkout@v6
 
