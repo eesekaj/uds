@@ -22,7 +22,7 @@ jobs:
 
     runs-on: ubuntu-latest
     container:
-      image: ubuntu-latest
+      image: ubuntu-vm:runner-24.04
       volumes:
         - /vm_images:/vm_images
 
