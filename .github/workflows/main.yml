@@ -36,6 +36,7 @@ jobs:
 
       - name: Test server
         run: |
+          ls -ls /
           ls -la /vm_images
           curl --head http://localhost:8080/freebsd-15.0-x86-64.qcow2
 
