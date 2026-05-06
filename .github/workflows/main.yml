@@ -2,7 +2,7 @@ name: CI Rust UDS
 on: [push, pull_request]
 
 jobs:
-  linux-build:
+  linux-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,14 +16,17 @@ jobs:
           cargo test
 
 # FreeeBSD          
-  freebsd-build:
+  freebsd-test:
+    needs: linux-test
+    if: always()
+
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
       - name: Loop check
         run: |
-          ls /dev | grep kvm|loop
+          ls /dev | grep "(kvm|loop)"
 
       - name: Start server background process
         run: |
@@ -53,14 +56,17 @@ jobs:
             cargo test
 
 # OpenBSD
-  openbsd-build:
+  openbsd-test:
+    needs: freebsd-test
+    if: always()
+
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
       - name: Loop check
         run: |
-          ls /dev | grep kvm|loop
+          ls /dev | grep "(kvm|loop)"
 
       - name: Start server background process
         run: |
@@ -90,10 +96,17 @@ jobs:
             cargo test
 
 # NetBSD ----
-  netbsd-build:
+  netbsd-test:
+    needs: openbsd-test
+    if: always()
+
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - name: Loop check
+        run: |
+          ls /dev | grep "(kvm|loop)"
 
       - name: Start server background process
         run: |
