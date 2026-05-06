@@ -21,21 +21,17 @@ jobs:
     if: always()
 
     runs-on: ubuntu-latest
-    container:
-      image: registry:5000/ubuntu-vm:runner-24.04
-      volumes:
-        - /vm_images:/vm_images
-      options: >-
-        --device /dev/kvm
-        --device /dev/loop-control
-        --device /dev/loop0
-        --device /dev/loop1
-        --device /dev/loop2
-        --device /dev/loop3
-        --device /dev/loop4
-        --device /dev/loop5
-        --device /dev/loop6
-        --privileged
+
+    services:
+      # The service name becomes the hostname (e.g., http://my-web-server)
+      my-web-server:
+        image: nginx:stable
+        volume: 
+          - /vm_images:/usr/share/nginx/html:ro
+        ports:
+          - 8081:80
+
+
     steps:
       - uses: actions/checkout@v6
 
@@ -51,6 +47,7 @@ jobs:
 
       - name: Test server
         run: |
+          curl --head http://my-web-server:8081/freebsd-15.0-x86-64.qcow2
           ls -ls /
           ls -la /vm_images
           curl --head http://localhost:8080/freebsd-15.0-x86-64.qcow2
