@@ -26,7 +26,7 @@ jobs:
       # The service name becomes the hostname (e.g., http://my-web-server)
       my-web-server:
         image: nginx:stable
-        volume: 
+        volumes: 
           - /vm_images:/usr/share/nginx/html:ro
         ports:
           - 8081:80
