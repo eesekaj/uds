@@ -5,10 +5,26 @@ jobs:
   linux-test:
     runs-on: self-hosted 
     container: 
-      image: ghcr.io/catthehacker/ubuntu:act-24.04
+      image: ubuntu_gha:rust-24.04
       volumes:
         - /vm_images:/vm_images
+        - /tmp:/__e/node24_alpine
+        - /tmp:/__e/node20_alpine
     steps:
+      - name: Fix checkout and upload-artifact
+        run: |
+          apk add nodejs npm
+
+          mkdir -p /__e/node24_alpine/bin
+          ln -sf $(which node) /__e/node24_alpine/bin/node
+          ln -sf $(which npm) /__e/node24_alpine/bin/npm
+          ln -sf $(which npx) /__e/node24_alpine/bin/npx
+
+          mkdir -p /__e/node20_alpine/bin
+          ln -sf $(which node) /__e/node20_alpine/bin/node
+          ln -sf $(which npm) /__e/node20_alpine/bin/npm
+          ln -sf $(which npx) /__e/node20_alpine/bin/npx
+
       - uses: actions/checkout@v4
 
       - name: Test server
