@@ -5,7 +5,7 @@ jobs:
   linux-test:
     runs-on: self-hosted 
     container: 
-      image: docker://ubuntu_gha:rust-24.04
+      image: docker://gha-registry:5002/ubuntu-gha:rust-24.04
       volumes:
         - /vm_images:/vm_images
         - /tmp:/__e/node24_alpine
