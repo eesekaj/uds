@@ -8,7 +8,8 @@ jobs:
       test-proxy:
         image: nginx:stable
         options: --add-host=host.docker.internal:host-gateway
-        volumes: /vm_images:/vm_images
+        volumes: 
+          - /vm_images:/vm_images
     steps:
 
       - uses: actions/checkout@v4
