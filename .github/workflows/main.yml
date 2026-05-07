@@ -4,10 +4,12 @@ on: [push, pull_request]
 jobs:
   linux-test:
     runs-on: self-hosted 
-    container:
-      image: docker://registry:5000/ubuntu-vm:runner-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Test server
+        run: |
+          ls -ls /
 
       - name: Check Rust Stable
         run: |
