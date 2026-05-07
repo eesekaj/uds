@@ -4,6 +4,10 @@ on: [push, pull_request]
 jobs:
   linux-test:
     runs-on: self-hosted 
+    container: 
+      image: ghcr.io/actions/actions-runner:latest
+      volumes:
+        - /vm_images:/vm_images
     steps:
       - uses: actions/checkout@v4
 
