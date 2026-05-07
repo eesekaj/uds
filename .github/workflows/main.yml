@@ -11,8 +11,6 @@ jobs:
     steps:
       - name: Fix checkout and upload-artifact
         run: |
-          apk add nodejs npm
-
           mkdir -p /__e/node24_alpine/bin
           ln -sf $(which node) /__e/node24_alpine/bin/node
           ln -sf $(which npm) /__e/node24_alpine/bin/npm
