@@ -4,19 +4,17 @@ on: [push, pull_request]
 jobs:
   linux-test:
     runs-on: self-hosted 
-    services:
-      test-proxy:
-        image: nginx:stable
-        options: --add-host=host.docker.internal:host-gateway
-        volumes: 
-          - /vm_images:/vm_images
+    container: 
+      image: gha-registry:5002/ubuntu-gha:rust-24.04
+      volumes:
+        - /vm_images:/vm_images
     steps:
 
       - uses: actions/checkout@v4
 
       - name: Test server
         run: |
-          curl http://host.docker.internal
+          ls -ls /
 
       - name: Check Rust Stable
         run: |
