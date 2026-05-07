@@ -4,28 +4,18 @@ on: [push, pull_request]
 jobs:
   linux-test:
     runs-on: self-hosted 
-    container: 
-      image: gha-registry:5002/ubuntu-gha:rust-24.04
-      volumes:
-        - /vm_images:/vm_images
+    services:
+      test-proxy:
+      image: nginx:stable
+      options: --add-host=host.docker.internal:host-gateway
+      volumes: /vm_images:/vm_images
     steps:
-      - name: Fix checkout and upload-artifact
-        run: |
-          mkdir -p /__e/node24_alpine/bin
-          ln -sf $(which node) /__e/node24_alpine/bin/node
-          ln -sf $(which npm) /__e/node24_alpine/bin/npm
-          ln -sf $(which npx) /__e/node24_alpine/bin/npx
-
-          mkdir -p /__e/node20_alpine/bin
-          ln -sf $(which node) /__e/node20_alpine/bin/node
-          ln -sf $(which npm) /__e/node20_alpine/bin/npm
-          ln -sf $(which npx) /__e/node20_alpine/bin/npx
 
       - uses: actions/checkout@v4
 
       - name: Test server
         run: |
-          ls -ls /
+          curl http://host.docker.internal
 
       - name: Check Rust Stable
         run: |
