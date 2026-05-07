@@ -4,18 +4,18 @@ on: [push, pull_request]
 jobs:
   linux-test:
     runs-on: self-hosted 
+    container:
+      image: docker://registry:5000/ubuntu-vm:runner-24.04
     steps:
       - uses: actions/checkout@v4
 
       - name: Check Rust Stable
-        uses: docker://registry:5000/ubuntu-vm:runner-24.04
-        with:
-          run: |
-            echo "Running on Ubuntu!"
-            rustc --version
-            cargo check --tests --examples
-            cargo build --tests --examples
-            cargo test
+        run: |
+          echo "Running on Ubuntu!"
+          rustc --version
+          cargo check --tests --examples
+          cargo build --tests --examples
+          cargo test
 
 # FreeeBSD          
   freebsd-test:
