@@ -248,7 +248,7 @@ pub mod mio_conn_enabled
     }
 }
 
-#[cfg(feature = "xio-rs")]
+/*#[cfg(feature = "xio-rs")]
 pub mod xio_conn_enabled
 {
     use xio_rs::{EsInterfaceRegistry, XioChannel, XioEventPipe, XioEventUid, XioResult, event_registry::XioRegistry};
@@ -274,7 +274,7 @@ pub mod xio_conn_enabled
             ess.get_ev_sys().de_register(&self.fd)
         }
     }
-}
+}*/
 
 impl UnixSeqpacketConn 
 {
@@ -1241,7 +1241,7 @@ pub mod mio_listener_enabled
     }
 }
 
-#[cfg(feature = "xio-rs")]
+/*#[cfg(feature = "xio-rs")]
 pub mod xio_listener_enabled
 {
     use xio_rs::{EsInterfaceRegistry, XioChannel, XioEventPipe, XioEventUid, XioResult, event_registry::XioRegistry};
@@ -1267,7 +1267,7 @@ pub mod xio_listener_enabled
             ess.get_ev_sys().de_register(&self.fd)
         }
     }
-}
+}*/
 
 impl UnixSeqpacketListener 
 {
@@ -1753,7 +1753,7 @@ pub mod mio_non_blk_conn_enabled
     }
 }
 
-#[cfg(feature = "xio-rs")]
+/*#[cfg(feature = "xio-rs")]
 pub mod xio_non_blk_conn_enabled
 {
     use xio_rs::{EsInterfaceRegistry, XioChannel, XioEventPipe, XioEventUid, XioResult, event_registry::XioRegistry};
@@ -1778,6 +1778,7 @@ pub mod xio_non_blk_conn_enabled
         }
     }
 }
+*/
 
 // can't Deref<Target=UnixSeqpacketConn> because that would include try_clone()
 // and later set_(read|write)_timeout()
@@ -2125,7 +2126,7 @@ pub mod mio_non_blk_listener_enabled
     }
 }
 
-#[cfg(feature = "xio-rs")]
+/*#[cfg(feature = "xio-rs")]
 pub mod xio_non_blk_listener_enabled
 {
     use xio_rs::{EsInterfaceRegistry, XioChannel, XioEventPipe, XioEventUid, XioResult, event_registry::XioRegistry};
@@ -2151,3 +2152,5 @@ pub mod xio_non_blk_listener_enabled
         }
     }
 }
+    */
+    

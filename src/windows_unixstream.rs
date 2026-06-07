@@ -738,7 +738,7 @@ impl io::Read for WindowsUnixStream
 }
 
 
-#[cfg(feature = "xio-rs")]
+/*#[cfg(feature = "xio-rs")]
 pub mod xio_unix_stream_enabled
 {
     use xio_rs::{EsInterfaceRegistry, XioChannel, XioEventPipe, XioEventUid, XioResult, event_registry::XioRegistry};
@@ -764,7 +764,7 @@ pub mod xio_unix_stream_enabled
             ess.get_ev_sys().de_register(&self.sock)
         }
     }
-}
+}*/
 
 impl WindowsUnixStream
 {
@@ -1061,6 +1061,7 @@ impl IntoRawSocket for WindowsUnixListener
     }
 }
 
+/*
 /// A XIO [XioEventPipe] implementation.
 #[cfg(feature = "xio-rs")]
 pub mod xio_listener_enabled
@@ -1089,6 +1090,7 @@ pub mod xio_listener_enabled
         }
     }
 }
+    */
 
 impl WindowsUnixListener
 {

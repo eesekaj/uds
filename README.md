@@ -20,7 +20,7 @@ Ancillary credentials and timestamps are not yet supported.
 
 ## Features:
 
-* "xio-rs" enables the Xio-rs event notification system compat code
+* "xio-rs" enables the Xio-rs event notification system compat code (DISABLED TEMPORARY)
 * "mio" enables the Mio event notification system compat code
 * "unsatable_preview" enables the all unstable, nightly code i.e send_vectored_with_ancillary().
 
@@ -28,6 +28,13 @@ Ancillary credentials and timestamps are not yet supported.
 
 <details>
   <summary>Changelog Version</summary>
+
+* A xio-rs was disabled due to compilation errors. Will be returned as soon as it will receive updates.
+
+</details>
+
+<details>
+  <summary>Changelog Version Version 0.9.0 (2026-04-15)</summary>
 
 While auditing the code, I discovered that the person who was helping me with this crate had mixed up the functions "to_raw_fd()" and  "into_raw_fd()" which may cause a FD leak while sending the FD.
 For this reason, a version 0.8.x is considered as faulty.
