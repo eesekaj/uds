@@ -34,7 +34,7 @@ Ancillary credentials and timestamps are not yet supported.
   <summary>Changelog Version</summary>
 
 * A xio-rs was disabled due to compilation errors. Will be returned as soon as it will receive updates.
-* OpenBSD requires rustc >= 1.95 in order to compile successfully.
+* OpenBSD/NetBSD requires rustc >= 1.95 in order to compile successfully.
 </details>
 
 <details>

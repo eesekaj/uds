@@ -100,7 +100,6 @@ jobs:
           shell: bash 
           run: |
             uname -a
-            whoami
             sudo pkg install -y rust
             rustc --version
             cargo build --tests --examples
@@ -148,21 +147,19 @@ jobs:
       - name: Test server
         run: |
           ls -la /vm_images
-          curl --head http://localhost:8080/openbsd-7.8-x86-64.qcow2
+          curl --head http://localhost:8080/openbsd-7.9-x86-64.qcow2
 
       - name: Run in OpenBSD
         uses: https://github.com/cross-platform-actions/action@v1.0.0
         with:
           operating_system: openbsd
-          image_url: http://localhost:8080/openbsd-7.8-x86-64.qcow2
-          version: '7.8'
+          image_url: http://localhost:8080/openbsd-7.9-x86-64.qcow2
+          version: '7.9'
           memory: 4G
           cpu_count: 3
           shell: bash 
           run: |
             uname -a
-            whoami
-            sudo pkg_add rust
             rustc --version
             cargo build --tests --examples
             cargo check --tests --examples
@@ -220,9 +217,6 @@ jobs:
           shell: bash 
           run: |
             uname -a
-            whoami
-            sudo pkgin update
-            sudo pkgin -y install rust
             rustc --version
             cargo build --tests --examples
             cargo check --tests --examples
