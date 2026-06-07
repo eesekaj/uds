@@ -3,7 +3,7 @@
 <img src="https://cdn.4neko.org/win_ev_log.webp" width="150"/>
 
 <br/>
-<img src="https://codeberg.org/4neko/uds/badges/workflows/multi-os.yml/badge.svg" />
+<a href = "https://codeberg.org/4neko/uds/actions"><img src="https://codeberg.org/4neko/uds/badges/workflows/multi-os.yml/badge.svg" /></a>
 
 
 > [!IMPORTANT]  
