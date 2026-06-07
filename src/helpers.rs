@@ -105,7 +105,8 @@ fn get_socket_family<S: AsFd>(fd: &S) -> io::Result<u16>
     // more likely it will not fail
     if res == 0
     {
-        return Ok(unsafe { optval.assume_init() }.sa_family);
+        // .into() fixes compilation error on FreeBSD as it has u8 for sa_family
+        return Ok(unsafe { optval.assume_init() }.sa_family.into());
     }
     else
     {

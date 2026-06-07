@@ -1,6 +1,7 @@
 Version 0.9.1 (2026-06-07)
 ==========================
-A xio-rs was disabled due to compilation errors. Will be returned as soon as it will receive updates.
+* A xio-rs was disabled due to compilation errors. Will be returned as soon as it will receive updates.
+* OpenBSD/NetBSD requires rustc >= 1.95 in order to compile successfully.
 
 Version 0.9.0 (2026-04-15)
 ==========================

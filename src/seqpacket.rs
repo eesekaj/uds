@@ -1,9 +1,4 @@
-#[cfg(any(
-    target_vendor="apple", target_os="freebsd",
-    target_os="netbsd",
-    target_os="illumos", target_os="solaris",
-))]
-use std::io::ErrorKind;
+
 use std::
 {
     io::{self, ErrorKind, IoSlice, IoSliceMut}, net::Shutdown, ops::{Deref, DerefMut}, os::unix::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd}, path::Path, time::Duration

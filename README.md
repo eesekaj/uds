@@ -2,6 +2,10 @@
 
 <img src="https://cdn.4neko.org/win_ev_log.webp" width="150"/>
 
+<br/>
+<img src="https://codeberg.org/4neko/uds/badges/workflows/multi-os.yml/badge.svg" />
+
+
 > [!IMPORTANT]  
 > Very bad news [ISSUE](https://github.com/tormol/uds/issues/29). I am not able to verify this!
 
@@ -30,7 +34,7 @@ Ancillary credentials and timestamps are not yet supported.
   <summary>Changelog Version</summary>
 
 * A xio-rs was disabled due to compilation errors. Will be returned as soon as it will receive updates.
-
+* OpenBSD requires rustc >= 1.95 in order to compile successfully.
 </details>
 
 <details>
