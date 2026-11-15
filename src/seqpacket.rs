@@ -1,7 +1,6 @@
 
-use std::
-{
-    io::{self, ErrorKind, IoSlice, IoSliceMut}, net::Shutdown, ops::{Deref, DerefMut}, os::unix::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd}, path::Path, time::Duration
+use std::{
+    io::{self, ErrorKind, IoSlice, IoSliceMut}, net::Shutdown, ops::{Deref, DerefMut}, os::unix::{io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd}, net::SocketAddr}, path::Path, time::Duration
 };
 
 #[cfg(feature = "unsatable_preview")]
@@ -294,6 +293,28 @@ impl UnixSeqpacketConn
         
         return Ok(UnixSeqpacketConn { fd: socket.into() });
     }
+
+    /// STDLIB:
+    /// 
+    /// Connects to the socket specified by [`socket_addr`]. 
+    /// 
+    /// # Examples
+    /// 
+    /// ```ignore
+    /// let listener = UnixSeqpacketConn::bind("/path/to/the/socket")?;
+    /// let addr = listener.local_addr()?;
+    /// 
+    /// UnixSeqpacketConn::connect_addr(&addr);
+    /// ```
+    pub 
+    fn connect_addr(socket_addr: &SocketAddr) -> Result<Self, io::Error>    
+    {
+        let socket = Socket::<SocketSeqPkt>::new(false)?;
+
+        socket.set_unix_peer_addr(&UnixSocketAddr::from_std_ref(socket_addr)?)?;
+
+        return Ok(UnixSeqpacketConn { fd: socket.into() });
+    }   
     
     /// Binds to an address before connecting to a listening seqpacet socket.
     pub 

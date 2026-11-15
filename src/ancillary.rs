@@ -4,7 +4,7 @@
 )]
 
 use std::ops::{Deref, DerefMut};
-use std::borrow::{Borrow, BorrowMut, Cow};
+use std::borrow::{Borrow, BorrowMut};
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::io::RawFd;
 use std::io::{self, ErrorKind, IoSlice, IoSliceMut};
@@ -154,34 +154,43 @@ fn send_ancillary<FD: AsFd>(
         }
 
         // stack buffer which should be big enough for most scenarios
-
         let ancillary_buf = 
-            AncillaryFixedBuf( [0_u8; unsafe { CMSG_SPACE(60*size_of::<RawFd>() as u32) as usize}] );
-    
+            AncillaryBufType::<{ unsafe { CMSG_SPACE(AncillaryBuf::CMSG_SPACE_VALUE_BUF) as usize} }>::new_stack();
 
         if needed_capacity != 0 
         {
 
             msg.msg_controllen = needed_capacity as ControlLen;
 
-            let cap: Cow<'_, [u8]> = 
+            let abt = 
                 if needed_capacity as usize >= mem::size_of_val(&ancillary_buf)
                 {
-                    Cow::Owned(AncillaryBufType::<0>::create_heap(needed_capacity as ControlLen))
+                    AncillaryBufType
+                        ::<{ unsafe { CMSG_SPACE(AncillaryBuf::CMSG_SPACE_VALUE_BUF) as usize} }>
+                        ::new_heap(needed_capacity as ControlLen)
                 }
                 else 
                 {
-                    assert_eq!(ancillary_buf.0.as_ptr() as usize % mem::align_of::<cmsghdr>(), 0, "assertion trap: ancillary_buf is not aligned!");
+                    assert_eq!(ancillary_buf.as_ptr() as usize % mem::align_of::<cmsghdr>(), 0, "assertion trap: ancillary_buf is not aligned!");
 
-                    Cow::Borrowed(ancillary_buf.0.as_slice())    
+                    ancillary_buf
                 };
 
-            msg.msg_control = cap.as_ptr() as *mut c_void;
+            msg.msg_control = abt.as_ptr() as *mut c_void;
 
             #[cfg(not(any(target_os="illumos", target_os="solaris")))] 
             {
                 let header_ptr = CMSG_FIRSTHDR(&mut msg);
-                assert!(!header_ptr.is_null(), "CMSG_FIRSTHDR returned unexpected NULL pointer");
+
+                // remove assertion, replace with soft fail
+                //assert!(!header_ptr.is_null(), "CMSG_FIRSTHDR returned unexpected NULL pointer");
+                if header_ptr.is_null() == true
+                {
+                    return Err(
+                        io::Error::new(ErrorKind::InvalidData, "CMSG_FIRSTHDR returned unexpected NULL pointer")
+                    );
+                }
+
 
                 #[allow(unused_mut)]
                 let mut header = &mut*header_ptr;
@@ -198,20 +207,20 @@ fn send_ancillary<FD: AsFd>(
                         
                         let data = CMSG_DATA(header) as *mut c_void as *mut ucred;
 
-                        if data.is_aligned() == false
-                        {
-                            ptr::write_unaligned(data, creds);
-                        }
-                        else
-                        {
-                            ptr::write(data, creds);
-                        }
+                        // dst is aligned due to header
+                        ptr::write(data, creds);
                        // *(CMSG_DATA(header) as *mut c_void as *mut _) = creds;
                         
                         let header_ptr = CMSG_NXTHDR(&mut msg, header);
                         if fds.len() > 0 
                         {
-                            assert_eq!(header_ptr.is_null(), false, "CMSG_NXTHDR returned unexpected NULL pointer");
+                            //assert_eq!(header_ptr.is_null(), false, "CMSG_NXTHDR returned unexpected NULL pointer");
+                            if header_ptr.is_null() == true
+                            {
+                                return Err(
+                                    io::Error::new(ErrorKind::InvalidData, "CMSG_FIRSTHDR returned unexpected NULL pointer")
+                                );
+                            }
                         
                             header = &mut*header_ptr;
                         }
@@ -228,14 +237,7 @@ fn send_ancillary<FD: AsFd>(
                     
                     for fd in fds
                     {
-                        if dst.is_aligned() == false
-                        {
-                            ptr::write_unaligned(dst, *fd);
-                        }
-                        else
-                        {
-                            ptr::write(dst, *fd);
-                        }
+                        ptr::write(dst, *fd);
 
                         dst = dst.add(1);
                     }
@@ -338,14 +340,30 @@ impl<const N: usize> AncillaryBufType<N>
 #[derive(Debug)]
 pub struct AncillaryBuf 
 {
-    //capacity: ControlLen,
+    /// A capacity of the message which was picked by the user. If the `buf` is
+    /// allocated on the stack, the real capacity will be larger. For heap, it may
+    /// be a bit larger due to aligment.
+    capacity: ControlLen,
+
+    /// A buffer.
     buf: AncillaryBufType<{Self::MAX_STACK_CAPACITY }>,
 }
 
 impl AncillaryBuf 
 {
+    /// A msghdr buffer on stack for AUX send. 
+    /// 
+    /// size_of(cmsghdr) = 16 + [size_of(RawFd) = 4] * 60 = 256
+    pub const MAX_SEND_FD_BUF: usize = 60;
+
+    /// A cmsg_space value.
+    pub const CMSG_SPACE_VALUE_BUF: u32 = ( AncillaryBuf::MAX_SEND_FD_BUF * size_of::<RawFd>() ) as u32;
+
+    /// A max stack capacity for the `AncillaryBuf` allocated on the stack instead of the 
+    /// heap.
     pub const MAX_STACK_CAPACITY: usize = 256;
 
+    /// A max capacity of the message in total.
     pub const MAX_CAPACITY: usize = ControlLen::MAX as usize;
 
     pub 
@@ -372,8 +390,8 @@ impl AncillaryBuf
         return Ok(
             Self 
             {
-                /*capacity: 
-                    bytes as ControlLen,*/
+                capacity: 
+                    bytes as ControlLen,
                 buf: 
                     buf,
             }
@@ -425,6 +443,16 @@ impl AncillaryBuf
             Self::with_capacity(num_fds) // any non-zero value is not supported
         }
     }
+
+    /// Returns the capacity. The buffer may be larger than the reported capacity. This is
+    /// due to the buffer allocated on the stack is always [Self::MAX_STACK_CAPACITY]. In
+    /// case of heap allocated buffer, it also may be a bit larger due to aligment. However, 
+    /// the reported value is what was specified by the user or default value.
+    pub 
+    fn capacity(&self) -> usize
+    {
+        self.capacity
+    }
 }
 impl Default for AncillaryBuf 
 {
@@ -432,8 +460,8 @@ impl Default for AncillaryBuf
     {
         Self 
         {
-            /*capacity: 
-                Self::MAX_STACK_CAPACITY as ControlLen,*/
+            capacity: 
+                Self::MAX_STACK_CAPACITY as ControlLen,
             buf: 
                 AncillaryBufType::new_stack()
         }
@@ -556,89 +584,78 @@ impl<'a> Iterator for Ancillary<'a>
     #[cfg(not(any(target_os="illumos", target_os="solaris")))]
     fn next(&mut self) -> Option<Self::Item>
     {
-        unsafe 
+        if self.next_message.is_null() 
         {
-            if self.next_message.is_null() 
-            {
-                return None;
-            }
-
-            // do not use this value, unitl validated, see below
-            let msg_bytes = (*self.next_message).cmsg_len as usize;
-
-            // validate the msg_bytes
-            if (self.msg.msg_controllen as usize - self.msg_ctrl_len_read as usize)  < msg_bytes || msg_bytes < CMSG_LEN(0) as usize
-            {
-                return Some(
-                    Err(io::Error::new(ErrorKind::InvalidData, 
-                        format!("malformed cmsghdr struct, cmsg_len < libc::cmsghdr OR larger than out of bounds, \
-                            msg_controllen: {}, msg_ctrllen_read: {}, cmsg_len: {}", 
-                            self.msg.msg_controllen, self.msg_ctrl_len_read, msg_bytes)))
-                );
-            }
-            
-            // increase the read bytes counter (controllen)
-            self.msg_ctrl_len_read += msg_bytes;
-
-            // a length of the payload
-            let payload_bytes = msg_bytes - CMSG_LEN(0) as usize; 
-
-            // in theory the ancillary buffer is always aligned, but in case if it is not
-            let msg = 
-                if self.next_message.is_aligned() == false
-                {
-                    self.next_message.read_unaligned()
-                }
-                else
-                {
-                    self.next_message.read()
-                };
-
-            let item = 
-                match (msg.cmsg_level, msg.cmsg_type) 
-                {
-                    (SOL_SOCKET, SCM_RIGHTS) => 
-                    {
-                        let num_fds = payload_bytes / mem::size_of::<RawFd>();
-                        
-                        // pointer is aligned due to the cmsg header
-                        let first_fd = CMSG_DATA(self.next_message) as *const c_void;
-                        let first_fd = first_fd.cast::<RawFd>();
-
-                        // consume onece the FD's
-                        AncillaryItem::new_fds(first_fd, num_fds)
-                    }
-                    #[cfg(any(target_os="linux", target_os="android"))]
-                    (SOL_SOCKET, SCM_CREDENTIALS) => 
-                    {
-                        if payload_bytes != CMSG_LEN(size_of::<RawReceivedCredentials>() as u32) as usize
-                        {
-                            return Some(
-                                Err(io::Error::new(ErrorKind::InvalidData, 
-                                    format!("malformed cmsghdr struct, cmsg_len(payload_bytes) != libc::ucred")))
-                            );
-                        }
-
-                        let creds_ptr = CMSG_DATA(self.next_message) as *const c_void;
-
-                        // pointer is aligned due to the cmsg header
-                        debug_assert!(
-                            creds_ptr as usize & (mem::align_of::<RawReceivedCredentials>()-1) == 0,
-                            "CMSG_DATA() is aligned"
-                        );
-
-                        let creds_ptr = creds_ptr as *const RawReceivedCredentials;
-
-                        AncillaryItem::Credentials(ReceivedCredentials::from_raw(creds_ptr))
-                    }
-                    _ => 
-                        AncillaryItem::Unsupported,
-                };
-
-            self.next_message = CMSG_NXTHDR(&mut self.msg, self.next_message);
-            
-            return Some(Ok(item));
+            return None;
         }
+
+        // do not use this value, unitl validated, see below
+        let msg_bytes = (unsafe{ *self.next_message }).cmsg_len as usize;
+
+        // validate the msg_bytes
+        if (self.msg.msg_controllen as usize - self.msg_ctrl_len_read as usize)  < msg_bytes || msg_bytes < unsafe{ CMSG_LEN(0) } as usize
+        {
+            return Some(
+                Err(io::Error::new(ErrorKind::InvalidData, 
+                    format!("malformed cmsghdr struct, cmsg_len < libc::cmsghdr OR larger than out of bounds, \
+                        msg_controllen: {}, msg_ctrllen_read: {}, cmsg_len: {}", 
+                        self.msg.msg_controllen, self.msg_ctrl_len_read, msg_bytes)))
+            );
+        }
+        
+        // increase the read bytes counter (controllen)
+        self.msg_ctrl_len_read += msg_bytes;
+
+        // a length of the payload
+        let payload_bytes = msg_bytes - unsafe{ CMSG_LEN(0) } as usize; 
+
+        // in theory the ancillary buffer is always aligned
+        let msg = unsafe{ &*self.next_message };
+
+        let item = 
+            match (msg.cmsg_level, msg.cmsg_type) 
+            {
+                (SOL_SOCKET, SCM_RIGHTS) => 
+                {
+                    let num_fds = payload_bytes / mem::size_of::<RawFd>();
+                    
+                    // pointer is aligned due to the cmsg header
+                    let first_fd = unsafe{ CMSG_DATA(self.next_message) } as *const c_void;
+                    let first_fd = first_fd.cast::<RawFd>();
+
+                    // consume onece the FD's
+                    unsafe{ AncillaryItem::new_fds(first_fd, num_fds) }
+                }
+                #[cfg(any(target_os="linux", target_os="android"))]
+                (SOL_SOCKET, SCM_CREDENTIALS) => 
+                {
+                    if payload_bytes != unsafe{ CMSG_LEN(size_of::<RawReceivedCredentials>() as u32) } as usize
+                    {
+                        return Some(
+                            Err(io::Error::new(ErrorKind::InvalidData, 
+                                format!("malformed cmsghdr struct, cmsg_len(payload_bytes) != libc::ucred")))
+                        );
+                    }
+
+                    let creds_ptr = unsafe{ CMSG_DATA(self.next_message) } as *const c_void;
+
+                    // pointer is aligned due to the cmsg header
+                    debug_assert!(
+                        creds_ptr as usize & (mem::align_of::<RawReceivedCredentials>()-1) == 0,
+                        "CMSG_DATA() is aligned"
+                    );
+
+                    let creds_ptr = creds_ptr as *const RawReceivedCredentials;
+
+                    AncillaryItem::Credentials(ReceivedCredentials::from_raw(creds_ptr))
+                }
+                _ => 
+                    AncillaryItem::Unsupported,
+            };
+
+        self.next_message = unsafe{ CMSG_NXTHDR(&mut self.msg, self.next_message) };
+        
+        return Some(Ok(item));
     }
 
     #[cfg(any(target_os="illumos", target_os="solaris"))]
@@ -700,9 +717,9 @@ impl<'a> Ancillary<'a>
 impl<'a> Ancillary<'a>
 {
     #[cfg(test)]
-    fn recv_ancillary_fake<'ancillary_buf>(
+    fn recv_ancillary_fake(
         msg: msghdr,
-    ) -> Result<(usize, Ancillary<'ancillary_buf>), io::Error> 
+    ) -> Result<(usize, Ancillary<'a>), io::Error> 
     {
         let received = msg.msg_controllen as u32 + size_of::<msghdr>() as u32;
 
@@ -728,105 +745,102 @@ impl<'a> Ancillary<'a>
     /// 
     /// Legacy.
     pub 
-    fn recv_ancillary<'ancillary_buf, FD: AsFd>(
+    fn recv_ancillary<FD: AsFd>(
         socket: FD,  
         from: Option<&mut UnixSocketAddr>,  
         mut flags: c_int,
         bufs: &mut[IoSliceMut],  
-        ancillary_buf: &'ancillary_buf mut[u8],
-    ) -> Result<(usize, Ancillary<'ancillary_buf>), io::Error> 
+        ancillary_buf: &'a mut[u8],
+    ) -> Result<(usize, Ancillary<'a>), io::Error> 
     {
-        unsafe 
+        let mut msg: msghdr = unsafe{ mem::zeroed() };
+        msg.msg_name = ptr::null_mut();
+        msg.msg_namelen = 0;
+        msg.msg_iov = bufs.as_mut_ptr() as *mut iovec;
+        msg.msg_iovlen = 
+            bufs.len().try_into()
+                .map_err(|_|
+                    io::Error::new(ErrorKind::InvalidInput, "too many content buffers")
+                )?;
+
+        msg.msg_flags = 0;
+        msg.msg_control = ptr::null_mut();
+        msg.msg_controllen = 0;
+
+        if ancillary_buf.len() > 0 
         {
-            let mut msg: msghdr = mem::zeroed();
-            msg.msg_name = ptr::null_mut();
-            msg.msg_namelen = 0;
-            msg.msg_iov = bufs.as_mut_ptr() as *mut iovec;
-            msg.msg_iovlen = 
-                bufs.len().try_into()
-                    .map_err(|_|
-                        io::Error::new(ErrorKind::InvalidInput, "too many content buffers")
-                    )?;
-
-            msg.msg_flags = 0;
-            msg.msg_control = ptr::null_mut();
-            msg.msg_controllen = 0;
-
-            if ancillary_buf.len() > 0 
+            #[cfg(any(target_os="illumos", target_os="solaris"))] 
             {
-                #[cfg(any(target_os="illumos", target_os="solaris"))] 
-                {
-                    return Err(io::Error::new(
-                        ErrorKind::Other,
-                        "ancillary message support is not implemented yet on Illumos or Solaris, sorry"
-                    ))
-                }
-
-                if ancillary_buf.as_ptr() as usize % mem::align_of::<cmsghdr>() != 0 
-                {
-                    return Err(
-                        io::Error::new(ErrorKind::InvalidInput, "ancillary buffer is not properly aligned")
-                    );
-                }
-
-                if ancillary_buf.len() > ControlLen::MAX as usize 
-                {
-                    return Err(
-                        io::Error::new(ErrorKind::InvalidInput, "ancillary buffer is too big")
-                    );
-                }
-
-                msg.msg_control = ancillary_buf.as_mut_ptr() as *mut c_void;
-                msg.msg_controllen = ancillary_buf.len() as ControlLen;
+                return Err(io::Error::new(
+                    ErrorKind::Other,
+                    "ancillary message support is not implemented yet on Illumos or Solaris, sorry"
+                ))
             }
 
-            flags |= MSG_NOSIGNAL;
-            #[cfg(not(any(target_vendor="apple", target_os="illumos", target_os="solaris", target_os = "haiku")))] 
+            if ancillary_buf.as_ptr() as usize % mem::align_of::<cmsghdr>() != 0 
             {
-                flags |= MSG_CMSG_CLOEXEC;
+                return Err(
+                    io::Error::new(ErrorKind::InvalidInput, "ancillary buffer is not properly aligned to cmsghdr")
+                );
             }
 
-            let received = 
-                match from 
-                {
-                    Some(addrbuf) => 
-                    {
-                        let (received, addr) = 
-                            UnixSocketAddr::new_from_ffi(
-                                |addr, len| 
-                                {
-                                    msg.msg_name = addr as *mut sockaddr as *mut c_void;
-                                    msg.msg_namelen = *len;
-                                    let received = cvt_r!(recvmsg(socket.as_fd().as_raw_fd(), &mut msg, flags))? as usize;
-                                    *len = msg.msg_namelen;
+            if ancillary_buf.len() > ControlLen::MAX as usize 
+            {
+                return Err(
+                    io::Error::new(ErrorKind::InvalidInput, "ancillary buffer is too big")
+                );
+            }
 
-                                    Ok(received)
-                                }
-                            )?;
-
-                        *addrbuf = addr;
-
-                        received
-                    }
-                    None => 
-                        cvt_r!( recvmsg(socket.as_fd().as_raw_fd(), &mut msg, flags) )? as usize
-                };
-
-            let ancillary_iterator = 
-                Ancillary 
-                {
-                    msg,
-                    _ancillary_buf: 
-                        PhantomData,
-                    #[cfg(not(any(target_os="illumos", target_os="solaris")))]
-                    next_message: 
-                        CMSG_FIRSTHDR(&msg),
-                    msg_ctrl_len_read: 
-                        0
-                };
-
-            return Ok((received, ancillary_iterator));
+            msg.msg_control = ancillary_buf.as_mut_ptr() as *mut c_void;
+            msg.msg_controllen = ancillary_buf.len() as ControlLen;
         }
+
+        flags |= MSG_NOSIGNAL;
+        #[cfg(not(any(target_vendor="apple", target_os="illumos", target_os="solaris", target_os = "haiku")))] 
+        {
+            flags |= MSG_CMSG_CLOEXEC;
+        }
+
+        let received = 
+            match from 
+            {
+                Some(addrbuf) => 
+                {
+                    let (received, addr) = 
+                        UnixSocketAddr::new_from_ffi(
+                            |addr, len| 
+                            {
+                                msg.msg_name = addr as *mut sockaddr as *mut c_void;
+                                msg.msg_namelen = *len;
+                                let received = cvt_r!( unsafe{ recvmsg(socket.as_fd().as_raw_fd(), &mut msg, flags) })? as usize;
+                                *len = msg.msg_namelen;
+
+                                Ok(received)
+                            }
+                        )?;
+
+                    *addrbuf = addr;
+
+                    received
+                }
+                None => 
+                    cvt_r!( unsafe{ recvmsg(socket.as_fd().as_raw_fd(), &mut msg, flags) } )? as usize
+            };
+
+        let ancillary_iterator = 
+            Ancillary 
+            {
+                msg,
+                _ancillary_buf: 
+                    PhantomData,
+                #[cfg(not(any(target_os="illumos", target_os="solaris")))]
+                next_message: 
+                    unsafe{ CMSG_FIRSTHDR(&msg) },
+                msg_ctrl_len_read: 
+                    0
+            };
+
+        return Ok((received, ancillary_iterator));
     }
 }
 

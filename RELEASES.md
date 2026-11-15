@@ -1,3 +1,16 @@
+Version 0.11.0 (2026-11-15)
+==========================
+* Added comments
+* Updated aux_send and aux_recv. Removed unaligned_read. Replaced Cow with the AncillaryBufType.
+* Removed unsafe blocks which covered a large parts of code and applied only where it was necessary
+* From Cargo.toml a ~ was removed from versions.
+* Moving to model: S-AS Sources Available Software.
+* Added connect_addr() to comply with STD
+* UnixSocketAddr::from_std() is now able to convert net::SocketAddr abstract addr in Linux and Android
+however, for xBSD and rest it cannot not. For this reason now `from_std` returns error `ErrorKind::Unsupported` 
+instead of the Option::None. 
+* Added policy.
+
 Version 0.10.3 (2026-11-09)
 ==========================
 * Fixed incorrect memeory allocation on the heap.

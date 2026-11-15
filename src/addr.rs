@@ -683,27 +683,72 @@ impl UnixSocketAddr
 
     /// Tries to convert a `std::os::unix::net::SocketAddr` into an `UnixSocketAddr`.
     ///
-    /// This can fail (produce `None`) on Linux and Android
+    /// This can fail (produce `Err`) on systems other than Linux and Android
     /// if the `std` `SocketAddr` represents an abstract address,
     /// as it provides no method for viewing abstract addresses.
     /// (other than parsing its `Debug` output, anyway.)
-    #[cfg(unix)]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     pub 
-    fn from_std(addr: net::SocketAddr) -> Option<Self> 
+    fn from_std(addr: net::SocketAddr) -> Result<Self, io::Error> 
     {
-        return 
-            if let Some(path) = addr.as_pathname() 
-            {
-                Some(Self::from_path(path).expect("pathname addr cannot be converted"))
-            } 
-            else if addr.is_unnamed() 
-            {
-                Some(Self::new_unspecified())
-            } 
-            else 
-            {
-                None
-            };
+        Self::from_std_ref(&addr)
+    }
+
+    /// Tries to convert a `std::os::unix::net::SocketAddr` into an `UnixSocketAddr`.
+   #[cfg(any(target_os = "linux", target_os = "android"))]
+    pub 
+    fn from_std(addr: net::SocketAddr) -> Result<Self, io::Error> 
+    {
+        Self::from_std_ref(&addr)
+    }
+
+    /// Tries to convert a `std::os::unix::net::SocketAddr` into an `UnixSocketAddr`.
+    ///
+    /// This can fail (produce `Err`) on systems other than Linux and Android
+    /// if the `std` `SocketAddr` represents an abstract address,
+    /// as it provides no method for viewing abstract addresses.
+    /// (other than parsing its `Debug` output, anyway.)
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    pub 
+    fn from_std_ref(addr: &net::SocketAddr) -> Result<Self, io::Error> 
+    {
+        if let Some(path) = addr.as_pathname() 
+        {
+            Self::from_path(path)
+        } 
+        else if addr.is_unnamed() 
+        {
+            Ok(Self::new_unspecified())
+        } 
+        else 
+        {
+            Err(io::Error::new(ErrorKind::Unsupported, format!("unknown addr type: {:?}", addr)))
+        }
+    }
+
+    /// Tries to convert a `std::os::unix::net::SocketAddr` into an `UnixSocketAddr`.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    pub 
+    fn from_std_ref(addr: &net::SocketAddr) -> Result<Self, io::Error> 
+    {
+        use std::os::linux::net::SocketAddrExt;
+
+        if let Some(path) = addr.as_pathname() 
+        {
+            Self::from_path(path)
+        } 
+        else if let Some(abs) = addr.as_abstract_name()
+        {
+            Self::from_abstract(abs)
+        }
+        else if addr.is_unnamed() 
+        {
+            Ok(Self::new_unspecified())
+        } 
+        else 
+        {
+            Err(io::Error::new(ErrorKind::Unsupported, format!("unknown addr type: {:?}", addr)))
+        }
     }
 
     /// Returns unnamed addres for empty strings, and path addresses otherwise.
