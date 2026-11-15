@@ -81,6 +81,19 @@ fn empty_abstract() {
 
 #[cfg(any(target_os="linux", target_os="android"))]
 #[test]
+fn abstract_name_from_std() 
+{
+    use std::os::{linux::net::SocketAddrExt, unix::net};
+
+    let addr = net::SocketAddr::from_abstract_name("hidden").unwrap();
+
+    let addr_n = UnixSocketAddr::from_std(addr).unwrap();
+
+    assert_eq!(addr_n.as_abstract(), Some(b"hidden".as_slice()));
+}
+
+#[cfg(any(target_os="linux", target_os="android"))]
+#[test]
 fn max_abstract_name() {
     let max = UnixSocketAddr::max_abstract_len();
     let max_addr = UnixSocketAddr::from_abstract(&vec![0; max])
