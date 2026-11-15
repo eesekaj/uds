@@ -687,7 +687,7 @@ impl UnixSocketAddr
     /// if the `std` `SocketAddr` represents an abstract address,
     /// as it provides no method for viewing abstract addresses.
     /// (other than parsing its `Debug` output, anyway.)
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    #[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
     pub 
     fn from_std(addr: net::SocketAddr) -> Result<Self, io::Error> 
     {
@@ -708,7 +708,7 @@ impl UnixSocketAddr
     /// if the `std` `SocketAddr` represents an abstract address,
     /// as it provides no method for viewing abstract addresses.
     /// (other than parsing its `Debug` output, anyway.)
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    #[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
     pub 
     fn from_std_ref(addr: &net::SocketAddr) -> Result<Self, io::Error> 
     {

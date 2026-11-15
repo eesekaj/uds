@@ -1,6 +1,6 @@
 [package]
 name = "uds-fork"
-version = "0.11.0"
+version = "0.11.1"
 description = """
 A unix domain socket crate that supports abstract addresses, fd-passing, seqpacket and windows unix stream sockets.
 """
