@@ -167,7 +167,7 @@ fn send_ancillary<FD: AsFd>(
                 {
                     AncillaryBufType
                         ::<{ unsafe { CMSG_SPACE(AncillaryBuf::CMSG_SPACE_VALUE_BUF) as usize} }>
-                        ::new_heap(needed_capacity as ControlLen)
+                        ::new_heap(needed_capacity as usize)
                 }
                 else 
                 {
@@ -343,7 +343,7 @@ pub struct AncillaryBuf
     /// A capacity of the message which was picked by the user. If the `buf` is
     /// allocated on the stack, the real capacity will be larger. For heap, it may
     /// be a bit larger due to aligment.
-    capacity: ControlLen,
+    capacity: usize,
 
     /// A buffer.
     buf: AncillaryBufType<{Self::MAX_STACK_CAPACITY }>,
@@ -391,7 +391,7 @@ impl AncillaryBuf
             Self 
             {
                 capacity: 
-                    bytes as ControlLen,
+                    bytes,
                 buf: 
                     buf,
             }
@@ -461,7 +461,7 @@ impl Default for AncillaryBuf
         Self 
         {
             capacity: 
-                Self::MAX_STACK_CAPACITY as ControlLen,
+                Self::MAX_STACK_CAPACITY,
             buf: 
                 AncillaryBufType::new_stack()
         }
